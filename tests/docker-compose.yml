@@ -1,0 +1,10 @@
+services:
+  test:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile
+    environment:
+      - PRIVIPOD_URL=http://localhost:8765
+      - PRIVIPOD_USER=testuser
+      - PRIVIPOD_PASS=testpass
+    network_mode: host

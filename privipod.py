@@ -9,7 +9,7 @@ Privipod - Lightweight encrypted secret transfer service
 
 Usage:
     uv run privipod.py                    # In-memory mode, default port
-    uv run privipod.py 8000               # Custom port
+    uv run privipod.py 0:8000             # Custom port all ips
     uv run privipod.py localhost:8000     # Custom host and port
     uv run privipod.py --store=privipod.db  # Path to database on disk
     uv run privipod.py --max-size=50      # Set max upload size (MB)
@@ -23,7 +23,9 @@ import os
 import secrets
 
 from django import forms
+from django.contrib import messages
 from django.db import models
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone as django_timezone
@@ -46,19 +48,31 @@ if __name__ == "__main__":
     parser.add_argument(
         "address",
         nargs="?",
-        default=None,
+        default=os.environ.get("PRIVIPOD_ADDRESS"),
         help="Optional address in format [host:]port (eg, 8000, 0.0.0.0:5000)",
     )
     parser.add_argument(
         "--store",
         metavar="PATH",
+        default=os.environ.get("PRIVIPOD_STORE"),
         help="Path to SQLite database file for disk persistence",
     )
     parser.add_argument(
         "--max-size", type=int, default=MAX_SIZE_MB, help="Max upload size in MB"
     )
-    parser.add_argument("--user", type=str, help="Username for login")
-    parser.add_argument("--pass", dest="password", type=str, help="Password for user")
+    parser.add_argument(
+        "--user",
+        type=str,
+        default=os.environ.get("PRIVIPOD_USER"),
+        help="Username for login",
+    )
+    parser.add_argument(
+        "--pass",
+        dest="password",
+        type=str,
+        default=os.environ.get("PRIVIPOD_PASS"),
+        help="Password for user",
+    )
     parser.add_argument("--debug", action="store_true", help="Debug mode, for devs")
     parser.add_argument(
         "--hostname",
@@ -99,6 +113,8 @@ app = Django(
     ALLOWED_HOSTS=allowed_hosts,
     CSRF_TRUSTED_ORIGINS=trusted_origins,
     SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+    # 2× gives headroom for encrypted payloads (~1.42× raw) from files moderately over the limit
+    DATA_UPLOAD_MAX_MEMORY_SIZE=int(MAX_SIZE_BYTES * 2),
 )
 
 
@@ -129,7 +145,7 @@ class Pod(models.Model):
     secret_type = models.CharField(
         max_length=10, choices=SecretType.choices, default=SecretType.TEXT, blank=True
     )
-    original_filename = models.CharField(max_length=255, null=True, blank=True)
+    encrypted_filename = models.BinaryField(null=True, blank=True)
     require_sender_auth = models.BooleanField(default=False)
     self_destruct = models.BooleanField(default=False)
 
@@ -175,7 +191,7 @@ class PodCreateForm(forms.ModelForm):
 class SendSecretForm(forms.Form):
     encrypted_data = forms.CharField(widget=forms.HiddenInput(), required=True)
     secret_type = forms.CharField(widget=forms.HiddenInput(), required=True)
-    original_filename = forms.CharField(required=False, widget=forms.HiddenInput())
+    encrypted_filename = forms.CharField(required=False, widget=forms.HiddenInput())
 
 
 # Register auth URLs
@@ -206,7 +222,6 @@ class CSPMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        print(f"Host: {request.get_host()}, Origin: {request.META.get('HTTP_ORIGIN')}")
         response = self.get_response(request)
         response["Content-Security-Policy"] = (
             "default-src 'self'; "
@@ -229,9 +244,30 @@ def dashboard(request):
 @app.route("/pod/create/", name="pod_create")
 @login_required
 def pod_create_view(request):
-    # Just generate hash and redirect to pod view
-    hash = secrets.token_urlsafe(32)
-    return redirect(reverse("pod_view", kwargs={"hash": hash}))
+    if request.method == "POST":
+        hash = request.POST.get("hash", "")
+        form = PodCreateForm(request.POST)
+        if form.is_valid() and hash:
+            pod = form.save(commit=False)
+            pod.owner = request.user
+            pod.hash = hash
+            pod.save()
+            return redirect(reverse("pod_view", kwargs={"hash": hash}))
+        return app.render(
+            request,
+            "pod_create.html",
+            {"title": "Create a Pod", "form": form, "hash": hash},
+        )
+
+    while True:
+        hash = secrets.token_urlsafe(32)
+        if not Pod.objects.filter(hash=hash).exists():
+            break
+    return app.render(
+        request,
+        "pod_create.html",
+        {"title": "Create a Pod", "form": PodCreateForm(), "hash": hash},
+    )
 
 
 @app.route("/pod/<str:hash>/", name="pod_view")
@@ -239,29 +275,11 @@ def pod_view(request, hash):
     try:
         pod = Pod.objects.get(hash=hash)
     except Pod.DoesNotExist:
-        # Pod doesn't exist yet - show create form if user is authenticated
         if not request.user.is_authenticated:
             return redirect(
                 f"{reverse('login')}?next={reverse('pod_view', kwargs={'hash': hash})}"
             )
-
-        if request.method == "POST":
-            # Create the pod
-            form = PodCreateForm(request.POST)
-            if form.is_valid():
-                pod = form.save(commit=False)
-                pod.owner = request.user
-                pod.hash = hash
-                pod.save()
-                return redirect(reverse("pod_view", kwargs={"hash": hash}))
-        else:
-            form = PodCreateForm()
-
-        return app.render(
-            request,
-            "pod_create.html",
-            {"title": "Create a Pod", "form": form, "hash": hash},
-        )
+        return app.render(request, "pod_not_found.html", {"title": "Pod Not Found"})
 
     # Check if expired
     if pod.is_expired():
@@ -296,6 +314,10 @@ def pod_view(request, hash):
         context["encrypted_secret_json"] = json.loads(
             pod.encrypted_secret.decode("utf-8")
         )
+        if pod.encrypted_filename:
+            context["encrypted_filename_json"] = json.loads(
+                pod.encrypted_filename.decode("utf-8")
+            )
 
         # Self-destruct: delete pod after owner views the secret
         if pod.self_destruct:
@@ -314,21 +336,46 @@ def pod_view(request, hash):
 
             # Check size
             if len(encrypted_data) > MAX_SIZE_BYTES:
-                context["error"] = (
-                    f"Encrypted data exceeds maximum size of {MAX_SIZE_MB}MB"
+                messages.error(
+                    request,
+                    f"Encrypted data exceeds maximum size of {MAX_SIZE_MB}MB",
                 )
-                return app.render(request, "pod_view.html", context)
+                return redirect(reverse("pod_view", kwargs={"hash": hash}))
 
             # Store encrypted secret
             pod.encrypted_secret = encrypted_data.encode("utf-8")
             pod.secret_type = send_form.cleaned_data["secret_type"]
-            pod.original_filename = send_form.cleaned_data.get("original_filename", "")
+            if enc_fn := send_form.cleaned_data.get("encrypted_filename"):
+                pod.encrypted_filename = enc_fn.encode("utf-8")
             pod.status = Pod.Status.SENT
             pod.save()
 
             return redirect(reverse("pod_view", kwargs={"hash": hash}))
 
     return app.render(request, "pod_view.html", context)
+
+
+@app.route("/pod/<str:hash>/status/", name="pod_status")
+def pod_status_view(request, hash):
+    """JSON polling endpoint for the owner to detect when a secret has been sent."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"status": "auth_required"}, status=403)
+    try:
+        pod = Pod.objects.get(hash=hash, owner=request.user)
+    except Pod.DoesNotExist:
+        return JsonResponse({"status": "not_found"}, status=404)
+
+    if pod.status != Pod.Status.SENT or pod.self_destruct:
+        return JsonResponse({"status": "pending"})
+
+    data = {
+        "status": "sent",
+        "encrypted_secret": json.loads(pod.encrypted_secret.decode("utf-8")),
+        "secret_type": pod.secret_type,
+    }
+    if pod.encrypted_filename:
+        data["encrypted_filename"] = json.loads(pod.encrypted_filename.decode("utf-8"))
+    return JsonResponse(data)
 
 
 # Background cleanup task
@@ -358,7 +405,7 @@ def main():
     print(f"Max upload size: {MAX_SIZE_MB}MB")
 
     if args.debug:
-        app.run(args.address)
+        app.run(args.address, username=args.user, password=args.password)
         return
 
     # Create event loop
@@ -368,8 +415,10 @@ def main():
     loop.create_task(
         app.create_server(
             args.address,
-            log_level="debug",
-            is_prod=False,
+            log_level="debug" if args.debug else "info",
+            is_prod=not args.debug,
+            username=args.user,
+            password=args.password,
         )
     )
     loop.create_task(cleanup_expired_pods())
@@ -583,6 +632,7 @@ app.templates["pod_create.html"] = """
 {% block content %}
 <form method="post" id="createPodForm">
     {% csrf_token %}
+    <input type="hidden" name="hash" value="{{ hash }}">
 
     {{ form.as_p }}
 
@@ -615,6 +665,16 @@ document.getElementById('createPodForm').addEventListener('submit', async (e) =>
     }
 });
 </script>
+{% endblock %}
+"""
+
+app.templates["pod_not_found.html"] = """
+{% extends "app.html" %}
+{% block content %}
+<div class="message error">This pod doesn't exist - it might have been deleted.</div>
+{% if user.is_authenticated %}
+<p><a href="{% url 'pod_create' %}" class="button">Create a new pod</a></p>
+{% endif %}
 {% endblock %}
 """
 
@@ -668,7 +728,79 @@ app.templates["pod_view.html"] = """
             <button onclick="exportKey()" class="button secondary">Download Key</button>
         </p>
 
-        <meta http-equiv="refresh" content="30">
+        <div id="secretDisplay" class="secret-display" style="display:none;"></div>
+        <script>
+        (async () => {
+            const podHash = "{{ pod.hash }}";
+            const selfDestruct = {{ pod.self_destruct|yesno:"true,false" }};
+            const display = document.getElementById('secretDisplay');
+            const storedJwk = PrivipodCrypto.getStoredKey(podHash);
+            if (!storedJwk || selfDestruct) {
+                setTimeout(() => location.reload(), 30000);
+                return;
+            }
+            const privateKey = await PrivipodCrypto.importPrivateKey(storedJwk);
+
+            async function pollForSecret() {
+                try {
+                    const resp = await fetch(`/pod/${podHash}/status/`, {credentials: 'same-origin'});
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    if (data.status !== 'sent') return;
+
+                    const encryptedSecret = data.encrypted_secret;
+                    const secretType = data.secret_type;
+                    const decrypted = await PrivipodCrypto.decrypt(encryptedSecret, privateKey);
+                    clearInterval(pollInterval);
+                    display.innerHTML = '';
+
+                    if (secretType === 'text') {
+                        const text = new TextDecoder().decode(decrypted);
+                        const ta = document.createElement('textarea');
+                        ta.readOnly = true;
+                        ta.style.cssText = 'width:100%; min-height:150px; margin-top:10px;';
+                        ta.value = text;
+                        display.appendChild(ta);
+                        const btn = document.createElement('button');
+                        btn.style.marginTop = '10px';
+                        btn.textContent = 'Copy to Clipboard';
+                        btn.onclick = () => privipodCopyToClipboard(text, 'Copied to clipboard!');
+                        display.appendChild(btn);
+                    } else {
+                        let filename = 'file';
+                        if (data.encrypted_filename) {
+                            try {
+                                const fnBytes = await PrivipodCrypto.decrypt(data.encrypted_filename, privateKey);
+                                filename = new TextDecoder().decode(fnBytes);
+                            } catch (fnErr) {
+                                console.error('Filename decryption failed:', fnErr);
+                            }
+                        }
+                        const blob = new Blob([decrypted]);
+                        const url = URL.createObjectURL(blob);
+                        const p = document.createElement('p');
+                        const strong = document.createElement('strong');
+                        strong.textContent = 'File: ';
+                        p.appendChild(strong);
+                        p.appendChild(document.createTextNode(filename));
+                        display.appendChild(p);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        a.className = 'button';
+                        a.textContent = 'Download File';
+                        display.appendChild(a);
+                    }
+                    display.style.display = 'block';
+                } catch (err) {
+                    console.error('Poll error:', err);
+                }
+            }
+
+            const pollInterval = setInterval(pollForSecret, 1000);
+            setTimeout(() => { clearInterval(pollInterval); location.reload(); }, 30000);
+        })();
+        </script>
         {% endif %}
 
     {% elif pod.status == "sent" %}
@@ -685,6 +817,8 @@ app.templates["pod_view.html"] = """
         {% endif %}
 
         {{ encrypted_secret_json|json_script:"encrypted-secret-data" }}
+        {% if encrypted_filename_json %}{{ encrypted_filename_json|json_script:"encrypted-filename-data" }}{% endif %}
+        <span id="pod-secret-type" data-type="{{ pod.secret_type }}" hidden></span>
 
         <div id="secretDisplay" class="secret-display">
             <p>Decrypting...</p>
@@ -710,7 +844,6 @@ app.templates["pod_view.html"] = """
         (async () => {
             const podHash = "{{ pod.hash }}";
             const secretType = "{{ pod.secret_type }}";
-            const originalFilename = "{{ pod.original_filename|escapejs }}";
             const selfDestruct = {{ pod.self_destruct|yesno:"true,false" }};
             const encryptedSecret = JSON.parse(document.getElementById('encrypted-secret-data').textContent);
             const display = document.getElementById('secretDisplay');
@@ -741,17 +874,28 @@ app.templates["pod_view.html"] = """
                     btn.onclick = () => privipodCopyToClipboard(text, 'Copied to clipboard!');
                     display.appendChild(btn);
                 } else {
+                    let filename = 'file';
+                    const encFilenameEl = document.getElementById('encrypted-filename-data');
+                    if (encFilenameEl) {
+                        try {
+                            const encFilename = JSON.parse(encFilenameEl.textContent);
+                            const fnBytes = await PrivipodCrypto.decrypt(encFilename, privateKey);
+                            filename = new TextDecoder().decode(fnBytes);
+                        } catch (fnErr) {
+                            console.error('Filename decryption failed:', fnErr);
+                        }
+                    }
                     const blob = new Blob([decrypted]);
                     const url = URL.createObjectURL(blob);
                     const p = document.createElement('p');
                     const strong = document.createElement('strong');
                     strong.textContent = 'File: ';
                     p.appendChild(strong);
-                    p.appendChild(document.createTextNode(originalFilename));
+                    p.appendChild(document.createTextNode(filename));
                     display.appendChild(p);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = originalFilename;
+                    a.download = filename;
                     a.className = 'button';
                     a.textContent = 'Download File';
                     display.appendChild(a);
@@ -779,7 +923,7 @@ app.templates["pod_view.html"] = """
                 document.getElementById('keyRecovery').style.display = 'block';
             }
 
-            // Key recovery via file import — only store key after decryption succeeds
+            // Key recovery via file import - only store key after decryption succeeds
             document.getElementById('importKeyFile').addEventListener('change', async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -904,7 +1048,9 @@ app.templates["pod_view.html"] = """
                 const file = fileInput.files[0];
                 data = await file.arrayBuffer();
                 document.querySelector('input[name="secret_type"]').value = 'file';
-                document.querySelector('input[name="original_filename"]').value = file.name;
+                // encrypt() returns {encryptedKey, encryptedData, iv} - serialise as JSON for the form field
+                const encryptedFilename = await PrivipodCrypto.encrypt(file.name, cachedPublicKey);
+                document.querySelector('input[name="encrypted_filename"]').value = JSON.stringify(encryptedFilename);
             }
 
             try {

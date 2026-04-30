@@ -1,0 +1,38 @@
+services:
+  privipod:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - privipod_data:/data
+    environment:
+      - PRIVIPOD_ADDRESS=0.0.0.0:8000
+      - PRIVIPOD_STORE=/data/privipod.db
+      - PRIVIPOD_USER=admin
+      - PRIVIPOD_PASS=
+    expose:
+      - "8000"
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+volumes:
+  privipod_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  web:

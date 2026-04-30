@@ -1,0 +1,22 @@
+[project]
+name = "privipod"
+version = "0.1.0"
+description = "Lightweight end-to-end encrypted one-time secret transfer"
+requires-python = ">=3.11"
+dependencies = [
+    "nanodjango",
+    "django-style",
+    "django-browser-reload",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-playwright",
+    "pytest-django",
+    "pytest-asyncio",
+    "requests",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

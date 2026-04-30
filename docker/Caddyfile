@@ -1,0 +1,3 @@
+privipod.example.com {
+    reverse_proxy privipod:8000
+}
