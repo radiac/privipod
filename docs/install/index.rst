@@ -9,10 +9,8 @@ Installation
     deploy
 
 
-Privipod is a single Python file with no build step.
-
-It can either be run locally on your machine and configured with remote access, or
-run remotely on a server.
+Privipod can either be run locally on your machine and configured with remote access,
+or run remotely on a server.
 
 .. note::
 
@@ -20,13 +18,11 @@ run remotely on a server.
    connection.
 
 
-The quickest way to run Privipod is with `uv <https://docs.astral.sh/uv/>`_:
+The quickest way to run Privipod is with `uvx <https://docs.astral.sh/uv/>`_:
 
 .. code-block:: bash
 
-    git clone https://github.com/radiac/privipod.git
-    cd privipod
-    uv run privipod.py --store privipod.db --user admin --pass changeme
+    uvx privipod --store privipod.db --user admin --pass changeme
 
 This runs Privipod on port 8000. Open ``http://localhost:8000`` in your browser.
 
@@ -80,13 +76,13 @@ Command-line options
 .. code-block:: bash
 
     # In-memory, default port
-    uv run privipod.py
+    uvx privipod
 
     # Persistent storage, port 8080
-    uv run privipod.py --store privipod.db 0:8080
+    uvx privipod --store privipod.db 0:8080
 
     # Create an admin user on first run
-    uv run privipod.py --store privipod.db --user=admin --pass=changeme
+    uvx privipod --store privipod.db --user=admin --pass=changeme
 
     # All options
-    uv run privipod.py --store privipod.db --max-size 50 --debug --user admin --pass test
+    uvx privipod --store privipod.db --max-size 50 --debug --user admin --pass test

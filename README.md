@@ -25,17 +25,21 @@ Read the [full documentation](https://privipod.readthedocs.io/en/latest/).
 
 ## Quick start
 
-Privipod is a single Python file with no build step. You need
-[uv](https://docs.astral.sh/uv/) installed.
+It's easiest to run with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone https://github.com/radiac/privipod.git
-cd privipod
-# Start with a temporary database and auto-generate a username and password
-uv run privipod.py
+# Start with a temporary database (data lost on shutdown)
+uvx privipod
 
 # Start with a permanent database and specify a username and password
-uv run privipod.py --store=privipod.db --user=admin --pass=changeme
+uvx privipod --store=privipod.db --user=admin --pass=changeme
+```
+
+Or you can install it and run it directly:
+
+```bash
+pip install privipod
+privipod
 ```
 
 Open `http://localhost:8000` in your browser. See the

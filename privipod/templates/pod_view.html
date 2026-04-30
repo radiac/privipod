@@ -1,0 +1,154 @@
+{% extends "app.html" %}
+
+{% block extra_head %}
+{{ block.super }}
+<script>
+const ppConf = {
+    podHash: "{{ pod.hash }}",
+    selfDestruct: {{ pod.self_destruct|yesno:"true,false" }},
+    podUrl: "{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}",
+};
+</script>
+{% endblock %}
+
+{% block content %}
+
+<p>Created by {{ pod.owner }}</p>
+
+{% if is_owner %}
+    {% if pod.status == "pending" %}
+        {% if not show_send_form %}
+        <div class="message info">
+            <strong>Waiting for secret</strong>
+        </div>
+
+        {% if pod.deadline %}
+            <div class="message warning">
+                This pod will close at {{ pod.deadline }}
+            </div>
+        {% endif %}
+
+        <p>Share this URL with the sender:</p>
+        <div class="pod-url">{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}</div>
+        <p>
+            <button onclick="PrivipodUI.copyUrl(ppConf.podUrl)">Copy URL</button>
+            <button onclick="location.reload()" class="button secondary">Refresh</button>
+            <a href="?send" class="button secondary">Send to myself</a>
+            <button onclick="PrivipodUI.exportKeyFile(ppConf.podHash)" class="button secondary">Download Key</button>
+        </p>
+
+        <div id="secretDisplay" class="secret-display" style="display:none;"></div>
+        <script>
+        PrivipodUI.initOwnerPending(ppConf.podHash, ppConf.selfDestruct);
+        </script>
+        {% endif %}
+
+    {% elif pod.status == "sent" %}
+        <div class="message success">Secret received</div>
+
+        {% if pod.self_destruct %}
+            <div class="message warning">
+                This message is set to self destruct, and will be gone when you close this page.
+            </div>
+        {% elif pod.deadline %}
+            <div class="message warning">
+                You have until {{ pod.deadline }} to see the secret.
+            </div>
+        {% endif %}
+
+        {{ encrypted_secret_json|json_script:"encrypted-secret-data" }}
+        {% if encrypted_filename_json %}{{ encrypted_filename_json|json_script:"encrypted-filename-data" }}{% endif %}
+        <span id="pod-secret-type" data-type="{{ pod.secret_type }}" hidden></span>
+
+        <div id="secretDisplay" class="secret-display">
+            <p>Decrypting...</p>
+        </div>
+
+        <div id="keyRecovery" style="display:none;">
+            <div class="message warning">
+                Private key not found in this browser. Import your key file to decrypt.
+            </div>
+            <p>
+                <label for="importKeyFile">Key file:</label>
+                <input type="file" id="importKeyFile" accept=".json">
+            </p>
+        </div>
+
+        <div id="keyActions" style="display:none;">
+            <p>
+                <button onclick="PrivipodUI.exportKeyFile(ppConf.podHash)" class="button secondary">Download Key</button>
+            </p>
+        </div>
+
+        <script>
+        PrivipodUI.initOwnerSent(ppConf.podHash, ppConf.selfDestruct);
+        </script>
+    {% endif %}
+
+{% endif %}
+
+{# Sender view (non-owner or owner sending to self) #}
+{% if show_send_form or not is_owner %}
+    {% if pod.status == "pending" and not pod.is_expired %}
+        <noscript>
+            <div class="message error">You must enable JavaScript to send a secret.</div>
+        </noscript>
+
+        <div class="message info">
+            Your data will be encrypted in your browser, and can only be read by the recipient.
+            {% if pod.self_destruct %}It will be deleted once they have seen it.{% endif %}
+        </div>
+
+        {% if pod.deadline %}
+            <div class="message warning">
+                The recipient has until {{ pod.deadline }} to see your secret.
+            </div>
+        {% endif %}
+
+        <form method="post" id="sendForm">
+            {% csrf_token %}
+
+            {{ send_form.as_p }}
+
+            <p>
+                <label for="input_type-text">Text secret</label>
+                <input type="radio" id="input_type-text" name="input_type" value="text" checked>
+            </p>
+            <p>
+                <label for="input_type-file">File</label>
+                <input type="radio" id="input_type-file" name="input_type" value="file">
+            </p>
+
+            <p id="textInput">
+                <label for="secretText">Enter your secret:</label>
+                <textarea id="secretText" placeholder="Enter secret text here..."></textarea>
+            </p>
+
+            <p id="fileInput" style="display: none;">
+                <label for="secretFile">Select file:</label>
+                <input type="file" id="secretFile">
+            </p>
+
+            <p style="margin-top: 20px;">
+                <button type="submit">Send Secret</button>
+            </p>
+        </form>
+
+        {{ public_key_json|json_script:"public-key-data" }}
+
+        <script>
+        PrivipodUI.initSendForm();
+        </script>
+
+    {% elif pod.status == "sent" %}
+        <div class="message success">
+            <strong>Pod has been sent!</strong><br>
+            The secret has been delivered.
+        </div>
+
+    {% else %}
+        <div class="message error">This pod has expired or never existed.</div>
+    {% endif %}
+{% endif %}
+
+{% endblock %}

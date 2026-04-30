@@ -1,0 +1,27 @@
+{% extends "app.html" %}
+
+{% block extra_head %}
+{{ block.super }}
+<script>
+const ppConf = {
+    podHash: "{{ hash }}",
+};
+</script>
+{% endblock %}
+
+{% block content %}
+<form method="post" id="createPodForm">
+    {% csrf_token %}
+    <input type="hidden" name="hash" value="{{ hash }}">
+
+    {{ form.as_p }}
+
+    <p style="margin-top: 20px;">
+        <button type="submit">Create Pod</button>
+    </p>
+</form>
+
+<script>
+PrivipodUI.initCreatePod(ppConf.podHash);
+</script>
+{% endblock %}

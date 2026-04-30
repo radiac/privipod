@@ -1,0 +1,50 @@
+{% extends "app.html" %}
+
+{% block extra_head %}
+{{ block.super }}
+<script>
+const ppConf = {
+    podHashes: [{% for pod in pods %}"{{ pod.hash }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+};
+</script>
+{% endblock %}
+
+{% block content %}
+
+<p><a href="{% url 'pod_create' %}" class="button">Create New Pod</a></p>
+
+{% if pods %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Created</th>
+            <th>Status</th>
+            <th>Deadline</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for pod in pods %}
+        <tr>
+            <td><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name }}</a></td>
+            <td>{{ pod.created_at }}</td>
+            <td>{{ pod.get_status_display }}</td>
+            <td>{{ pod.deadline|date:"Y-m-d H:i"|default:"No deadline" }}</td>
+            <td>
+                <a href="{% url 'pod_view' hash=pod.hash %}" class="button secondary">View</a>
+                <button onclick="PrivipodUI.copyUrl('{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}')" class="button secondary">Copy URL</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="message info">You haven't created any pods yet. <a href="{% url 'pod_create' %}">Create your first pod</a> to get started.</p>
+{% endif %}
+
+<script>
+PrivipodCrypto.cleanupStoredKeys(new Set(ppConf.podHashes));
+
+</script>
+{% endblock %}

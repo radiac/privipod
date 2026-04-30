@@ -1,0 +1,37 @@
+:root {
+    --colour-primary: #2c3e50;
+}
+.message { padding: 15px; margin: 15px 0; border-radius: 4px; }
+.message.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+.message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.message.warning { background: #fff3cd; color: #856404; border: 1px solid #f5c6cb; }
+.message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.loading { opacity: 0.6; pointer-events: none; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+}
+th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+th { background: #ecf0f1; font-weight: 600; }
+
+.pod-url {
+    background: #ecf0f1;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 15px 0;
+    font-family: monospace;
+    word-break: break-all;
+}
+.secret-display {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 15px 0;
+    border: 1px solid #dee2e6;
+}

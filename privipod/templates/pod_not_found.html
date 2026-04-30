@@ -1,0 +1,7 @@
+{% extends "app.html" %}
+{% block content %}
+<div class="message error">This pod doesn't exist - it might have been deleted.</div>
+{% if user.is_authenticated %}
+<p><a href="{% url 'pod_create' %}" class="button">Create a new pod</a></p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "app.html" %}
+
+{% block content %}
+
+{% if form.errors %}
+<div class="message error">Invalid username or password. Please try again.</div>
+{% endif %}
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <p style="margin-top: 20px;">
+        <button type="submit">Login</button>
+    </p>
+
+    <input type="hidden" name="next" value="{{ next }}">
+</form>
+{% endblock %}

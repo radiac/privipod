@@ -18,7 +18,7 @@ machine. Free accounts get a random subdomain; paid accounts get a fixed domain.
 .. code-block:: bash
 
     # Install ngrok, then:
-    uv run privipod.py 0:8000
+    uvx privipod 0:8000
 
     # In a second terminal:
     ngrok http 0:8000
@@ -42,7 +42,7 @@ with no inbound firewall rules required.
     cloudflared login
 
     # Start Privipod:
-    uv run privipod.py 0:8000
+    uvx privipod 0:8000
 
     # Start the tunnel (one-off, for quick sharing):
     cloudflared tunnel --url http://localhost:8000

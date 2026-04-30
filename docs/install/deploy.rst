@@ -52,7 +52,7 @@ Create ``/etc/systemd/system/privipod.service`` with something like this:
     Type=simple
     User=privipod
     WorkingDirectory=/opt/privipod
-    ExecStart=uv run /opt/privipod/privipod.py
+    ExecStart=uvx privipod \
         --store /opt/privipod/privipod.db \
         localhost:8000
     Restart=on-failure
@@ -67,7 +67,7 @@ this):
 
 .. code-block:: bash
 
-   /opt/privipod/privipod.py --store /opt/privipod/privipod.db
+   uvx privipod --store /opt/privipod/privipod.db
 
 
 Enable and start it:
@@ -76,7 +76,6 @@ Enable and start it:
 
     sudo useradd -r -s /sbin/nologin privipod
     sudo mkdir -p /opt/privipod
-    sudo cp privipod.py /opt/privipod/
     sudo chown -R privipod:privipod /opt/privipod
 
     sudo systemctl daemon-reload

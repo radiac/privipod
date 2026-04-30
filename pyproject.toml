@@ -2,21 +2,34 @@
 name = "privipod"
 version = "0.1.0"
 description = "Lightweight end-to-end encrypted one-time secret transfer"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "nanodjango",
+    "click",
     "django-style",
-    "django-browser-reload",
 ]
 
+[project.scripts]
+privipod = "privipod.commands:invoke"
+
 [dependency-groups]
+docs = [
+    "sphinx",
+    "sphinx-radiac-theme",
+    "sphinx-autobuild",
+]
 dev = [
     "pytest",
     "pytest-playwright",
     "pytest-django",
     "pytest-asyncio",
+    "django-browser-reload",
     "requests",
 ]
+
+[tool.uv.sources]
+sphinx-radiac-theme = { git = "https://github.com/radiac/sphinx_radiac_theme" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
