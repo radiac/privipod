@@ -34,6 +34,33 @@ They persist until:
     afterwards, or download the key to a secure location and delete it from the browser.
 
 
+Secret key
+==========
+
+Privipod uses a secret key to sign sessions and CSRF tokens. If you do not set one,
+a random key is generated on every startup — this logs a warning and means **all users
+are logged out whenever the process restarts**.
+
+Set a persistent key via the ``PRIVIPOD_SECRET_KEY`` environment variable:
+
+.. code-block:: bash
+
+    export PRIVIPOD_SECRET_KEY="your-long-random-string"
+
+The key should be at least 50 characters long, contain a mix of letters, digits, and
+symbols, and be generated randomly — never use a memorable phrase or reuse a key from
+another project.
+
+In the Docker deployment, add it to ``docker-compose.yml``::
+
+    environment:
+      - PRIVIPOD_SECRET_KEY=your-long-random-string-here
+
+For systemd, set it in the ``[Service]`` section::
+
+    Environment=PRIVIPOD_SECRET_KEY=your-long-random-string-here
+
+
 HTTPS requirement
 =================
 

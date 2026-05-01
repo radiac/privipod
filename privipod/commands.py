@@ -38,6 +38,13 @@ from . import config
     help="Password for user",
 )
 @click.option(
+    "--secret-key",
+    "secret_key",
+    default=None,
+    envvar="PRIVIPOD_SECRET_KEY",
+    help="Django secret key; generated if not set (see docs)",
+)
+@click.option(
     "--debug",
     is_flag=True,
     default=False,
@@ -50,7 +57,7 @@ from . import config
     metavar="HOST",
     help="Allowed hostname (eg, example.com); can be repeated. Defaults to any.",
 )
-def cli(address, store, max_size, user, password, debug, hostnames):
+def cli(address, store, max_size, user, password, secret_key, debug, hostnames):
     """Privipod - Lightweight encrypted secret transfer service."""
     config.address = address
     config.hostnames = list(hostnames)
@@ -59,6 +66,7 @@ def cli(address, store, max_size, user, password, debug, hostnames):
     config.debug = debug
     config.user = user
     config.password = password
+    config.secret_key = secret_key
 
     from . import server
 

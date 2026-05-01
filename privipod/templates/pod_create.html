@@ -3,9 +3,8 @@
 {% block body_class %}{{ block.super }} page-pod-create{% endblock %}
 
 {% block content %}
-<form method="post" id="createPodForm" data-pod-hash="{{ hash }}">
+<form method="post" id="createPodForm">
     {% csrf_token %}
-    <input type="hidden" name="hash" value="{{ hash }}">
 
     {{ form.as_p }}
 

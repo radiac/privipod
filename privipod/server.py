@@ -6,6 +6,7 @@ import secrets
 
 from django import forms
 from django.contrib import messages
+from django.core.management.utils import get_random_secret_key
 from django.db import models
 from django.http import JsonResponse
 from django.shortcuts import redirect
@@ -17,6 +18,7 @@ from nanodjango import Django, defer
 with defer:
     from django.contrib.auth.decorators import login_required
     from django.contrib.auth.views import LoginView, LogoutView
+    from django.views.decorators.http import require_POST
 
 from . import config
 
@@ -38,9 +40,17 @@ def setting_templates(TEMPLATES):
 allowed_hosts = config.hostnames or ["*"]
 trusted_origins = [f"https://{h}" for h in config.hostnames]
 
+secret_key = config.secret_key
+if not secret_key:
+    secret_key = get_random_secret_key()
+    print(
+        "WARNING: No secret key set, generating one instead - see docs for details"
+    )
+
 app = Django(
     APP_NAME="privipod",
     SQLITE_DATABASE=SQLITE_DATABASE,
+    SECRET_KEY=secret_key,
     LOGIN_REDIRECT_URL="/",
     LOGIN_URL="/login",
     DEBUG=config.debug,
@@ -49,6 +59,8 @@ app = Django(
     ALLOWED_HOSTS=allowed_hosts,
     CSRF_TRUSTED_ORIGINS=trusted_origins,
     SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+    SESSION_COOKIE_SECURE=not config.debug,
+    CSRF_COOKIE_SECURE=not config.debug,
     # 2× gives headroom for encrypted payloads (~1.42× raw) from files moderately over the limit
     DATA_UPLOAD_MAX_MEMORY_SIZE=int(MAX_SIZE_BYTES * 2),
 )
@@ -182,28 +194,26 @@ def dashboard(request):
 @login_required
 def pod_create_view(request):
     if request.method == "POST":
-        hash = request.POST.get("hash", "")
         form = PodCreateForm(request.POST)
-        if form.is_valid() and hash:
+        if form.is_valid():
             pod = form.save(commit=False)
             pod.owner = request.user
-            pod.hash = hash
+            while True:
+                pod.hash = secrets.token_urlsafe(32)
+                if not Pod.objects.filter(hash=pod.hash).exists():
+                    break
             pod.save()
-            return redirect(reverse("pod_view", kwargs={"hash": hash}))
+            return redirect(reverse("pod_view", kwargs={"hash": pod.hash}))
         return app.render(
             request,
             "pod_create.html",
-            {"title": "Create a Pod", "form": form, "hash": hash},
+            {"title": "Create a Pod", "form": form},
         )
 
-    while True:
-        hash = secrets.token_urlsafe(32)
-        if not Pod.objects.filter(hash=hash).exists():
-            break
     return app.render(
         request,
         "pod_create.html",
-        {"title": "Create a Pod", "form": PodCreateForm(), "hash": hash},
+        {"title": "Create a Pod", "form": PodCreateForm()},
     )
 
 
@@ -247,22 +257,27 @@ def pod_view(request, hash):
     show_send_form = is_owner and "send" in request.GET and pod.can_send()
 
     if is_owner and pod.status == Pod.Status.SENT:
-        # Embed encrypted secret for recipient to decrypt (parse to dict so json_script works)
-        context["encrypted_secret_json"] = json.loads(
-            pod.encrypted_secret.decode("utf-8")
-        )
-        if pod.encrypted_filename:
-            context["encrypted_filename_json"] = json.loads(
-                pod.encrypted_filename.decode("utf-8")
+        try:
+            context["encrypted_secret_json"] = json.loads(
+                pod.encrypted_secret.decode("utf-8")
             )
-
-        # Self-destruct: delete pod after owner views the secret
-        if pod.self_destruct:
-            pod.delete()
+        except (ValueError, AttributeError):
+            messages.error(request, "Stored secret is corrupt and cannot be displayed.")
+            return app.render(request, "pod_view.html", context)
+        if pod.encrypted_filename:
+            try:
+                context["encrypted_filename_json"] = json.loads(
+                    pod.encrypted_filename.decode("utf-8")
+                )
+            except (ValueError, AttributeError):
+                pass  # filename is cosmetic; proceed without it
 
     if (not is_owner or show_send_form) and pod.can_send():
-        # Embed public key for sender to encrypt with (parse to dict so json_script works)
-        context["public_key_json"] = json.loads(pod.public_key)
+        try:
+            context["public_key_json"] = json.loads(pod.public_key)
+        except (ValueError, AttributeError):
+            messages.error(request, "Pod public key is corrupt.")
+            return redirect(reverse("dashboard"))
         context["send_form"] = SendSecretForm()
         context["show_send_form"] = show_send_form
 
@@ -279,10 +294,25 @@ def pod_view(request, hash):
                 )
                 return redirect(reverse("pod_view", kwargs={"hash": hash}))
 
+            # Validate JSON structure before storing
+            try:
+                json.loads(encrypted_data)
+            except ValueError:
+                messages.error(request, "Invalid encrypted data.")
+                return redirect(reverse("pod_view", kwargs={"hash": hash}))
+
+            enc_fn = send_form.cleaned_data.get("encrypted_filename")
+            if enc_fn:
+                try:
+                    json.loads(enc_fn)
+                except ValueError:
+                    messages.error(request, "Invalid encrypted filename.")
+                    return redirect(reverse("pod_view", kwargs={"hash": hash}))
+
             # Store encrypted secret
             pod.encrypted_secret = encrypted_data.encode("utf-8")
             pod.secret_type = send_form.cleaned_data["secret_type"]
-            if enc_fn := send_form.cleaned_data.get("encrypted_filename"):
+            if enc_fn:
                 pod.encrypted_filename = enc_fn.encode("utf-8")
             pod.status = Pod.Status.SENT
             pod.save()
@@ -308,6 +338,24 @@ def pod_delete_view(request, hash):
     return redirect(reverse("dashboard"))
 
 
+@app.path("/pod/<str:hash>/confirm-read/", name="pod_confirm_read")
+@login_required
+@require_POST
+def pod_confirm_read_view(request, hash):
+    """Called by JS after successful client-side decrypt of a self-destruct pod."""
+    try:
+        pod = Pod.objects.get(
+            hash=hash,
+            owner=request.user,
+            self_destruct=True,
+            status=Pod.Status.SENT,
+        )
+    except Pod.DoesNotExist:
+        return JsonResponse({"error": "not found"}, status=404)
+    pod.delete()
+    return JsonResponse({"status": "ok"})
+
+
 @app.path("/health/", name="health")
 def health_view(request):
     return JsonResponse({"status": "ok"})
@@ -326,13 +374,21 @@ def pod_status_view(request, hash):
     if pod.status != Pod.Status.SENT or pod.self_destruct:
         return JsonResponse({"status": "pending"})
 
+    try:
+        encrypted_secret = json.loads(pod.encrypted_secret.decode("utf-8"))
+    except (ValueError, AttributeError):
+        return JsonResponse({"status": "error"}, status=500)
+
     data = {
         "status": "sent",
-        "encrypted_secret": json.loads(pod.encrypted_secret.decode("utf-8")),
+        "encrypted_secret": encrypted_secret,
         "secret_type": pod.secret_type,
     }
     if pod.encrypted_filename:
-        data["encrypted_filename"] = json.loads(pod.encrypted_filename.decode("utf-8"))
+        try:
+            data["encrypted_filename"] = json.loads(pod.encrypted_filename.decode("utf-8"))
+        except (ValueError, AttributeError):
+            pass
     return JsonResponse(data)
 
 

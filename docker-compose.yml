@@ -11,6 +11,7 @@ services:
       - PRIVIPOD_STORE=/data/privipod.db
       - PRIVIPOD_USER=admin
       - PRIVIPOD_PASS=
+      - PRIVIPOD_SECRET_KEY=
     expose:
       - "8000"
     networks:

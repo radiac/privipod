@@ -175,6 +175,13 @@ class PrivipodUI {
     }
   }
 
+  static getCsrfToken() {
+    return document.cookie.split(';')
+      .map(c => c.trim())
+      .find(c => c.startsWith('csrftoken='))
+      ?.split('=')[1] ?? '';
+  }
+
   static exportKeyFile(hash) {
     const jwkObj = PrivipodCrypto.getStoredKey(hash);
     if (!jwkObj) { PrivipodUI.showToast('No key found in this browser.', 'warning'); return; }
@@ -197,7 +204,6 @@ class PrivipodUI {
 
   static initCreatePod() {
     const form = document.getElementById('createPodForm');
-    const podHash = form.dataset.podHash;
     let keyPair = null;
     PrivipodCrypto.generateKeyPair()
       .then(kp => { keyPair = kp; })
@@ -210,7 +216,9 @@ class PrivipodUI {
         e.target.classList.add('loading');
         document.querySelector('input[name="public_key"]').value =
           JSON.stringify(await PrivipodCrypto.exportKey(keyPair.publicKey));
-        PrivipodCrypto.storeKey(podHash, await PrivipodCrypto.exportKey(keyPair.privateKey));
+        // Hash not yet known; park private key until initOwnerPending picks it up
+        sessionStorage.setItem('privipod_pending_key',
+          JSON.stringify(await PrivipodCrypto.exportKey(keyPair.privateKey)));
         e.target.submit();
       } catch (err) {
         e.target.classList.remove('loading');
@@ -221,6 +229,13 @@ class PrivipodUI {
 
   static initOwnerPending() {
     const { podHash } = document.getElementById('pp-data').dataset;
+
+    // Transfer private key parked by initCreatePod into persistent localStorage
+    const pendingKey = sessionStorage.getItem('privipod_pending_key');
+    if (pendingKey) {
+      PrivipodCrypto.storeKey(podHash, JSON.parse(pendingKey));
+      sessionStorage.removeItem('privipod_pending_key');
+    }
 
     const pollForSecret = async () => {
       try {
@@ -264,6 +279,11 @@ class PrivipodUI {
       keyRecovery.style.display = 'none';
       if (isSelfDestruct) {
         PrivipodCrypto.removeKey(podHash);
+        fetch(`/pod/${podHash}/confirm-read/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': PrivipodUI.getCsrfToken() },
+          credentials: 'same-origin',
+        }).catch(err => console.error('confirm-read failed:', err));
       } else {
         keyActions.style.display = 'block';
       }
