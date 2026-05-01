@@ -37,15 +37,14 @@ def setting_templates(TEMPLATES):
     return TEMPLATES
 
 
+deployed = bool(config.hostnames)
 allowed_hosts = config.hostnames or ["*"]
 trusted_origins = [f"https://{h}" for h in config.hostnames]
 
 secret_key = config.secret_key
 if not secret_key:
     secret_key = get_random_secret_key()
-    print(
-        "WARNING: No secret key set, generating one instead - see docs for details"
-    )
+    print("WARNING: No secret key set, generating one instead - see docs for details")
 
 app = Django(
     APP_NAME="privipod",
@@ -58,9 +57,15 @@ app = Django(
     TEMPLATES=setting_templates,
     ALLOWED_HOSTS=allowed_hosts,
     CSRF_TRUSTED_ORIGINS=trusted_origins,
+    # Safe in both modes: app port is never internet-reachable directly
     SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
-    SESSION_COOKIE_SECURE=not config.debug,
-    CSRF_COOKIE_SECURE=not config.debug,
+    # Always True: app requires HTTPS or localhost (a browser secure context)
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    # HSTS only in deployed mode; start at 1 hour, we may want to increase this later
+    SECURE_HSTS_SECONDS=3600 if deployed else 0,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=False,
+    SECURE_HSTS_PRELOAD=False,
     # 2× gives headroom for encrypted payloads (~1.42× raw) from files moderately over the limit
     DATA_UPLOAD_MAX_MEMORY_SIZE=int(MAX_SIZE_BYTES * 2),
 )
@@ -386,7 +391,9 @@ def pod_status_view(request, hash):
     }
     if pod.encrypted_filename:
         try:
-            data["encrypted_filename"] = json.loads(pod.encrypted_filename.decode("utf-8"))
+            data["encrypted_filename"] = json.loads(
+                pod.encrypted_filename.decode("utf-8")
+            )
         except (ValueError, AttributeError):
             pass
     return JsonResponse(data)
@@ -415,6 +422,13 @@ def main():
     If running in debug then does not clean up expired pods
     """
     print("Starting Privipod...")
+    if deployed:
+        print(f"Running in deployed mode: hostname(s) {', '.join(config.hostnames)}")
+        print(
+            "Ensure your reverse proxy strips/overwrites inbound X-Forwarded-* headers."
+        )
+    else:
+        print("Running in untrusted host mode.")
     print(
         f"Storage mode: {f'disk ({SQLITE_DATABASE})' if config.store else 'in-memory'}"
     )

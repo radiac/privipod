@@ -55,7 +55,8 @@ from . import config
     "hostnames",
     multiple=True,
     metavar="HOST",
-    help="Allowed hostname (eg, example.com); can be repeated. Defaults to any.",
+    envvar="PRIVIPOD_HOSTNAME",
+    help="Allowed hostname (eg, example.com); enables deployed mode. Can be repeated.",
 )
 def cli(address, store, max_size, user, password, secret_key, debug, hostnames):
     """Privipod - Lightweight encrypted secret transfer service."""

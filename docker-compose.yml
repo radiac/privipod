@@ -12,6 +12,7 @@ services:
       - PRIVIPOD_USER=admin
       - PRIVIPOD_PASS=
       - PRIVIPOD_SECRET_KEY=
+      - PRIVIPOD_HOSTNAME=
     expose:
       - "8000"
     networks:

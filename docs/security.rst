@@ -38,8 +38,8 @@ Secret key
 ==========
 
 Privipod uses a secret key to sign sessions and CSRF tokens. If you do not set one,
-a random key is generated on every startup — this logs a warning and means **all users
-are logged out whenever the process restarts**.
+a random key is generated on every startup — this logs a warning and means all users
+are logged out whenever the process restarts.
 
 Set a persistent key via the ``PRIVIPOD_SECRET_KEY`` environment variable:
 
@@ -68,3 +68,70 @@ Privipod must be served over HTTPS in production. The Web Crypto API requires a
 `secure context <https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts>`_,
 and without HTTPS the private key stored in ``localStorage`` is accessible to any
 script on the same origin. See :doc:`install` for configuration examples.
+
+
+Running Modes
+=============
+
+Privipod operates in two modes depending on whether ``--hostname`` is provided.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Setting
+     - Untrusted-host (default)
+     - Deployed (``--hostname``)
+   * - ``ALLOWED_HOSTS``
+     - ``["*"]``
+     - ``[hostname, …]``
+   * - ``CSRF_TRUSTED_ORIGINS``
+     - *(empty)*
+     - ``["https://hostname", …]``
+   * - ``SECURE_PROXY_SSL_HEADER``
+     - set
+     - set
+   * - ``SESSION_COOKIE_SECURE``
+     - True
+     - True
+   * - ``CSRF_COOKIE_SECURE``
+     - True
+     - True
+   * - ``SECURE_HSTS_SECONDS``
+     - 0
+     - 3600 (1 hour)
+
+Untrusted-host mode (default)
+-----------------------------
+
+Suitable for local use or sharing via ngrok/Cloudflare Tunnel. The app port
+is not internet-reachable directly, so ``X-Forwarded-Proto`` headers from the
+tunnel are trusted.
+
+.. note::
+
+    ``http://localhost`` is a secure context, but an ngrok or Cloudflare Tunnel
+    URL is a **different browser origin** — private keys stored in
+    ``localStorage`` are not shared between the two. Always use the same origin
+    consistently.
+
+Deployed mode (``--hostname example.com`` / ``PRIVIPOD_HOSTNAME=example.com``)
+-------------------------------------------------------------------------------
+
+For Docker/Caddy or systemd/nginx deployments. Providing a hostname:
+
+- Restricts ``ALLOWED_HOSTS`` to the listed hostname(s), preventing
+  Host-header link-poisoning.
+- Sets ``CSRF_TRUSTED_ORIGINS``.
+- Enables HSTS (1-hour max-age by default, no subdomains or preload).
+  Increase ``SECURE_HSTS_SECONDS`` in your deployment once everything is stable.
+
+.. important::
+
+    Your reverse proxy **must strip or overwrite inbound X-Forwarded-Proto
+    and X-Forwarded-For headers** before forwarding requests to Privipod.
+    Caddy does this automatically; for nginx add::
+
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+    Privipod's app port must **not** be publicly reachable — only the proxy
+    should connect to it.
