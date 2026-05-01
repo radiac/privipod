@@ -1,5 +1,7 @@
 {% extends "app.html" %}
 
+{% block body_class %}{{ block.super }} page-login{% endblock %}
+
 {% block content %}
 
 {% if form.errors %}
@@ -9,7 +11,7 @@
 <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-    <p style="margin-top: 20px;">
+    <p class="form-actions">
         <button type="submit">Login</button>
     </p>
 

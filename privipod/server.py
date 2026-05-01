@@ -162,8 +162,8 @@ class CSPMiddleware:
         response = self.get_response(request)
         response["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
             "img-src 'self' data:; "
             "connect-src 'self'"
         )
@@ -171,14 +171,14 @@ class CSPMiddleware:
 
 
 # Views
-@app.route("/", name="dashboard")
+@app.path("/", name="dashboard")
 @login_required
 def dashboard(request):
     pods = Pod.objects.filter(owner=request.user)
     return app.render(request, "dashboard.html", {"title": "Your Pods", "pods": pods})
 
 
-@app.route("/pod/create/", name="pod_create")
+@app.path("/pod/create/", name="pod_create")
 @login_required
 def pod_create_view(request):
     if request.method == "POST":
@@ -207,7 +207,7 @@ def pod_create_view(request):
     )
 
 
-@app.route("/pod/<str:hash>/", name="pod_view")
+@app.path("/pod/<str:hash>/", name="pod_view")
 def pod_view(request, hash):
     try:
         pod = Pod.objects.get(hash=hash)
@@ -292,7 +292,28 @@ def pod_view(request, hash):
     return app.render(request, "pod_view.html", context)
 
 
-@app.route("/pod/<str:hash>/status/", name="pod_status")
+@app.path("/pod/<str:hash>/delete/", name="pod_delete")
+@login_required
+def pod_delete_view(request, hash):
+    if request.method != "POST":
+        return redirect(reverse("pod_view", kwargs={"hash": hash}))
+    try:
+        pod = Pod.objects.get(hash=hash, owner=request.user)
+    except Pod.DoesNotExist:
+        messages.error(request, "Pod not found.")
+        return redirect(reverse("dashboard"))
+    pod_name = pod.name or hash[:8]
+    pod.delete()
+    messages.success(request, f"Pod '{pod_name}' deleted.")
+    return redirect(reverse("dashboard"))
+
+
+@app.path("/health/", name="health")
+def health_view(request):
+    return JsonResponse({"status": "ok"})
+
+
+@app.path("/pod/<str:hash>/status/", name="pod_status")
 def pod_status_view(request, hash):
     """JSON polling endpoint for the owner to detect when a secret has been sent."""
     if not request.user.is_authenticated:

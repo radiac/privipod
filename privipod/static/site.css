@@ -8,6 +8,37 @@
 .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 .loading { opacity: 0.6; pointer-events: none; }
 
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 360px;
+    max-width: calc(100vw - 40px);
+}
+.message.toast {
+    cursor: pointer;
+    margin: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    animation: toast-slide-in 0.25s ease;
+}
+@keyframes toast-slide-in {
+    from { opacity: 0; transform: translateX(30px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.button.danger { background: #c0392b; color: #fff; border-color: #a93226; }
+.button.danger:hover { background: #a93226; }
+
+.form-actions { margin-top: 20px; }
+.inline { display: inline; }
+#keyRecovery,
+#keyActions,
+#fileInput { display: none; }
+
 table {
     width: 100%;
     border-collapse: collapse;
@@ -34,4 +65,9 @@ th { background: #ecf0f1; font-weight: 600; }
     border-radius: 4px;
     margin: 15px 0;
     border: 1px solid #dee2e6;
+}
+
+#secretText {
+    overflow-y: hidden;
+    min-height: 80px;
 }

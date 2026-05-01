@@ -1,4 +1,7 @@
 {% extends "app.html" %}
+
+{% block body_class %}{{ block.super }} page-pod-not-found{% endblock %}
+
 {% block content %}
 <div class="message error">This pod doesn't exist - it might have been deleted.</div>
 {% if user.is_authenticated %}

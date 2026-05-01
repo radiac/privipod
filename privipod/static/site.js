@@ -88,14 +88,50 @@ class PrivipodCrypto {
 
 class PrivipodUI {
 
+  static showToast(msg, type = 'info', duration = 5000) {
+    let container = document.getElementById('ppToastContainer');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'ppToastContainer';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `message toast ${type}`;
+    toast.textContent = msg;
+    toast.onclick = () => toast.remove();
+    container.appendChild(toast);
+    if (duration > 0) setTimeout(() => toast.remove(), duration);
+    return toast;
+  }
+
+  static formatTimeUntil(isoString) {
+    const diff = new Date(isoString) - Date.now();
+    if (diff <= 0) return 'expired';
+    const totalMinutes = Math.floor(diff / 60000);
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+    if (days > 0) return `in ${days}d ${hours}h`;
+    if (hours > 0) return `in ${hours}h ${minutes}m`;
+    return `in ${minutes}m`;
+  }
+
+  static initDeadlines() {
+    document.querySelectorAll('time[data-deadline]').forEach(el => {
+      el.title = el.dataset.deadline;
+      el.textContent = PrivipodUI.formatTimeUntil(el.dataset.deadline);
+    });
+  }
+
   static copyToClipboard(text, msg) {
     navigator.clipboard.writeText(text)
-      .then(() => alert(msg || 'Copied!'))
-      .catch(() => alert('Failed to copy to clipboard'));
+      .then(() => PrivipodUI.showToast(msg || 'Copied!', 'success', 3000))
+      .catch(() => PrivipodUI.showToast('Failed to copy to clipboard', 'error'));
   }
 
   static copyUrl(url) {
-    this.copyToClipboard(url, 'Pod URL copied to clipboard!');
+    PrivipodUI.copyToClipboard(url, 'Pod URL copied to clipboard!');
   }
 
   static async renderSecret(display, decrypted, secretType, privateKey, encryptedFilenameData) {
@@ -141,7 +177,7 @@ class PrivipodUI {
 
   static exportKeyFile(hash) {
     const jwkObj = PrivipodCrypto.getStoredKey(hash);
-    if (!jwkObj) { alert('No key found in this browser.'); return; }
+    if (!jwkObj) { PrivipodUI.showToast('No key found in this browser.', 'warning'); return; }
     const blob = new Blob([JSON.stringify(jwkObj)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -151,34 +187,40 @@ class PrivipodUI {
     URL.revokeObjectURL(url);
   }
 
-  static initCreatePod(podHash) {
+  static initDashboard() {
+    const podHashes = new Set(
+      Array.from(document.querySelectorAll('tr[data-pod-hash]')).map(tr => tr.dataset.podHash)
+    );
+    PrivipodCrypto.cleanupStoredKeys(podHashes);
+    PrivipodUI.initDeadlines();
+  }
+
+  static initCreatePod() {
+    const form = document.getElementById('createPodForm');
+    const podHash = form.dataset.podHash;
     let keyPair = null;
     PrivipodCrypto.generateKeyPair()
       .then(kp => { keyPair = kp; })
       .catch(err => { console.error('Key generation failed:', err); });
 
-    document.getElementById('createPodForm').addEventListener('submit', async (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!keyPair) { alert('Key generation not ready yet, please try again.'); return; }
+      if (!keyPair) { PrivipodUI.showToast('Key generation not ready yet, please try again.', 'warning'); return; }
       try {
+        e.target.classList.add('loading');
         document.querySelector('input[name="public_key"]').value =
           JSON.stringify(await PrivipodCrypto.exportKey(keyPair.publicKey));
         PrivipodCrypto.storeKey(podHash, await PrivipodCrypto.exportKey(keyPair.privateKey));
         e.target.submit();
       } catch (err) {
-        alert(`Error preparing pod: ${err.message}`);
+        e.target.classList.remove('loading');
+        PrivipodUI.showToast(`Error preparing pod: ${err.message}`, 'error');
       }
     });
   }
 
-  static async initOwnerPending(podHash, selfDestruct) {
-    const display = document.getElementById('secretDisplay');
-    const storedJwk = PrivipodCrypto.getStoredKey(podHash);
-    if (!storedJwk || selfDestruct) {
-      setTimeout(() => location.reload(), 30000);
-      return;
-    }
-    const privateKey = await PrivipodCrypto.importPrivateKey(storedJwk);
+  static initOwnerPending() {
+    const { podHash } = document.getElementById('pp-data').dataset;
 
     const pollForSecret = async () => {
       try {
@@ -186,10 +228,7 @@ class PrivipodUI {
         if (!resp.ok) return;
         const data = await resp.json();
         if (data.status !== 'sent') return;
-        clearInterval(pollInterval);
-        const decrypted = await PrivipodCrypto.decrypt(data.encrypted_secret, privateKey);
-        await PrivipodUI.renderSecret(display, decrypted, data.secret_type, privateKey, data.encrypted_filename || null);
-        display.style.display = 'block';
+        location.reload();
       } catch (err) {
         console.error('Poll error:', err);
       }
@@ -199,7 +238,10 @@ class PrivipodUI {
     setTimeout(() => { clearInterval(pollInterval); location.reload(); }, 30000);
   }
 
-  static async initOwnerSent(podHash, selfDestruct) {
+  static async initOwnerSent() {
+    const { podHash, selfDestruct } = document.getElementById('pp-data').dataset;
+    const isSelfDestruct = selfDestruct === 'true';
+
     const secretType = document.getElementById('pod-secret-type').dataset.type;
     const encryptedSecret = JSON.parse(document.getElementById('encrypted-secret-data').textContent);
     const encFilenameEl = document.getElementById('encrypted-filename-data');
@@ -220,7 +262,7 @@ class PrivipodUI {
       const encryptedFilename = encFilenameEl ? JSON.parse(encFilenameEl.textContent) : null;
       await PrivipodUI.renderSecret(display, decrypted, secretType, privateKey, encryptedFilename);
       keyRecovery.style.display = 'none';
-      if (selfDestruct) {
+      if (isSelfDestruct) {
         PrivipodCrypto.removeKey(podHash);
       } else {
         keyActions.style.display = 'block';
@@ -258,6 +300,14 @@ class PrivipodUI {
     const jwk = JSON.parse(document.getElementById('public-key-data').textContent);
     const cachedPublicKey = await PrivipodCrypto.importPublicKey(jwk);
 
+    const secretText = document.getElementById('secretText');
+    const expandTextarea = () => {
+      secretText.style.height = 'auto';
+      secretText.style.height = secretText.scrollHeight + 'px';
+    };
+    secretText.addEventListener('input', expandTextarea);
+    expandTextarea();
+
     document.querySelectorAll('input[name="input_type"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
         document.getElementById('textInput').style.display = e.target.value === 'text' ? 'block' : 'none';
@@ -270,12 +320,20 @@ class PrivipodUI {
       const inputType = document.querySelector('input[name="input_type"]:checked').value;
       let data;
       if (inputType === 'text') {
-        data = document.getElementById('secretText').value;
-        if (!data) { alert('Please enter some text'); return; }
+        data = secretText.value;
+        if (!data) {
+          PrivipodUI.showToast('Please enter some text', 'warning');
+          secretText.focus();
+          return;
+        }
         document.querySelector('input[name="secret_type"]').value = 'text';
       } else {
         const fileInput = document.getElementById('secretFile');
-        if (!fileInput.files.length) { alert('Please select a file'); return; }
+        if (!fileInput.files.length) {
+          PrivipodUI.showToast('Please select a file', 'warning');
+          fileInput.focus();
+          return;
+        }
         const file = fileInput.files[0];
         data = await file.arrayBuffer();
         document.querySelector('input[name="secret_type"]').value = 'file';
@@ -289,8 +347,52 @@ class PrivipodUI {
         e.target.submit();
       } catch (err) {
         e.target.classList.remove('loading');
-        alert(`Encryption failed: ${err.message}`);
+        PrivipodUI.showToast(`Encryption failed: ${err.message}`, 'error');
       }
     });
   }
+
+  static async initPodView() {
+    if (document.getElementById('pp-owner-pending')) {
+      PrivipodUI.initOwnerPending();
+    }
+    if (document.getElementById('pp-owner-sent')) {
+      await PrivipodUI.initOwnerSent();
+    }
+    if (document.getElementById('sendForm')) {
+      await PrivipodUI.initSendForm();
+    }
+    PrivipodUI.initDeadlines();
+  }
 }
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('#pp-messages li').forEach(li => {
+    PrivipodUI.showToast(li.textContent.trim(), li.dataset.type);
+  });
+
+  document.querySelectorAll('[data-copy-url]').forEach(btn => {
+    btn.addEventListener('click', () => PrivipodUI.copyUrl(btn.dataset.copyUrl));
+  });
+  document.querySelectorAll('[data-export-key]').forEach(btn => {
+    btn.addEventListener('click', () => PrivipodUI.exportKeyFile(btn.dataset.exportKey));
+  });
+  document.querySelectorAll('[data-action="reload"]').forEach(btn => {
+    btn.addEventListener('click', () => location.reload());
+  });
+  document.querySelectorAll('form[data-confirm]').forEach(form => {
+    form.addEventListener('submit', (e) => {
+      if (!confirm(form.dataset.confirm)) e.preventDefault();
+    });
+  });
+
+  const body = document.body;
+  if (body.classList.contains('page-dashboard')) {
+    PrivipodUI.initDashboard();
+  } else if (body.classList.contains('page-pod-create')) {
+    PrivipodUI.initCreatePod();
+  } else if (body.classList.contains('page-pod-view')) {
+    PrivipodUI.initPodView();
+  }
+});

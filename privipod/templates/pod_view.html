@@ -1,88 +1,94 @@
 {% extends "app.html" %}
 
-{% block extra_head %}
-{{ block.super }}
-<script>
-const ppConf = {
-    podHash: "{{ pod.hash }}",
-    selfDestruct: {{ pod.self_destruct|yesno:"true,false" }},
-    podUrl: "{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}",
-};
-</script>
-{% endblock %}
+{% block body_class %}{{ block.super }} page-pod-view{% endblock %}
 
 {% block content %}
+
+<div id="pp-data" hidden
+    data-pod-hash="{{ pod.hash }}"
+    data-self-destruct="{{ pod.self_destruct|yesno:'true,false' }}"
+    data-pod-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}"></div>
 
 <p>Created by {{ pod.owner }}</p>
 
 {% if is_owner %}
     {% if pod.status == "pending" %}
         {% if not show_send_form %}
-        <div class="message info">
-            <strong>Waiting for secret</strong>
-        </div>
-
-        {% if pod.deadline %}
-            <div class="message warning">
-                This pod will close at {{ pod.deadline }}
+        <div id="pp-owner-pending">
+            <div class="message info">
+                <strong>Waiting for secret</strong>
             </div>
-        {% endif %}
 
-        <p>Share this URL with the sender:</p>
-        <div class="pod-url">{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}</div>
-        <p>
-            <button onclick="PrivipodUI.copyUrl(ppConf.podUrl)">Copy URL</button>
-            <button onclick="location.reload()" class="button secondary">Refresh</button>
-            <a href="?send" class="button secondary">Send to myself</a>
-            <button onclick="PrivipodUI.exportKeyFile(ppConf.podHash)" class="button secondary">Download Key</button>
-        </p>
+            {% if pod.deadline %}
+                <div class="message warning">
+                    This pod will close <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time>
+                </div>
+            {% endif %}
 
-        <div id="secretDisplay" class="secret-display" style="display:none;"></div>
-        <script>
-        PrivipodUI.initOwnerPending(ppConf.podHash, ppConf.selfDestruct);
-        </script>
+            <p>Share this URL with the sender:</p>
+            <div class="pod-url">{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}</div>
+            <p>
+                <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}">Copy URL</button>
+                <button data-action="reload" class="button secondary">Refresh</button>
+                <a href="?send" class="button secondary">Send to myself</a>
+                <button data-export-key="{{ pod.hash }}" class="button secondary">Download Key</button>
+            </p>
+            <p>
+                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" data-confirm="Delete this pod?">
+                    {% csrf_token %}
+                    <button type="submit" class="button danger">Delete Pod</button>
+                </form>
+            </p>
+        </div>
         {% endif %}
 
     {% elif pod.status == "sent" %}
-        <div class="message success">Secret received</div>
+        <div id="pp-owner-sent">
+            <div class="message success">Secret received</div>
 
-        {% if pod.self_destruct %}
-            <div class="message warning">
-                This message is set to self destruct, and will be gone when you close this page.
+            {% if pod.self_destruct %}
+                <div class="message warning">
+                    This message is set to self destruct, and will be gone when you close this page.
+                </div>
+            {% elif pod.deadline %}
+                <div class="message warning">
+                    You have until <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time> to see the secret.
+                </div>
+            {% endif %}
+
+            {{ encrypted_secret_json|json_script:"encrypted-secret-data" }}
+            {% if encrypted_filename_json %}{{ encrypted_filename_json|json_script:"encrypted-filename-data" }}{% endif %}
+            <span id="pod-secret-type" data-type="{{ pod.secret_type }}" hidden></span>
+
+            <div id="secretDisplay" class="secret-display">
+                <p>Decrypting...</p>
             </div>
-        {% elif pod.deadline %}
-            <div class="message warning">
-                You have until {{ pod.deadline }} to see the secret.
+
+            <div id="keyRecovery">
+                <div class="message warning">
+                    Private key not found in this browser. Import your key file to decrypt.
+                </div>
+                <p>
+                    <label for="importKeyFile">Key file:</label>
+                    <input type="file" id="importKeyFile" accept=".json">
+                </p>
             </div>
-        {% endif %}
 
-        {{ encrypted_secret_json|json_script:"encrypted-secret-data" }}
-        {% if encrypted_filename_json %}{{ encrypted_filename_json|json_script:"encrypted-filename-data" }}{% endif %}
-        <span id="pod-secret-type" data-type="{{ pod.secret_type }}" hidden></span>
-
-        <div id="secretDisplay" class="secret-display">
-            <p>Decrypting...</p>
-        </div>
-
-        <div id="keyRecovery" style="display:none;">
-            <div class="message warning">
-                Private key not found in this browser. Import your key file to decrypt.
+            <div id="keyActions">
+                <p>
+                    <button data-export-key="{{ pod.hash }}" class="button secondary">Download Key</button>
+                </p>
             </div>
+
+            {% if not pod.self_destruct %}
             <p>
-                <label for="importKeyFile">Key file:</label>
-                <input type="file" id="importKeyFile" accept=".json">
+                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" data-confirm="Delete this pod and its secret?">
+                    {% csrf_token %}
+                    <button type="submit" class="button danger">Delete Pod</button>
+                </form>
             </p>
+            {% endif %}
         </div>
-
-        <div id="keyActions" style="display:none;">
-            <p>
-                <button onclick="PrivipodUI.exportKeyFile(ppConf.podHash)" class="button secondary">Download Key</button>
-            </p>
-        </div>
-
-        <script>
-        PrivipodUI.initOwnerSent(ppConf.podHash, ppConf.selfDestruct);
-        </script>
     {% endif %}
 
 {% endif %}
@@ -101,7 +107,7 @@ const ppConf = {
 
         {% if pod.deadline %}
             <div class="message warning">
-                The recipient has until {{ pod.deadline }} to see your secret.
+                The recipient has until <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time> to see your secret.
             </div>
         {% endif %}
 
@@ -124,21 +130,17 @@ const ppConf = {
                 <textarea id="secretText" placeholder="Enter secret text here..."></textarea>
             </p>
 
-            <p id="fileInput" style="display: none;">
+            <p id="fileInput">
                 <label for="secretFile">Select file:</label>
                 <input type="file" id="secretFile">
             </p>
 
-            <p style="margin-top: 20px;">
+            <p class="form-actions">
                 <button type="submit">Send Secret</button>
             </p>
         </form>
 
         {{ public_key_json|json_script:"public-key-data" }}
-
-        <script>
-        PrivipodUI.initSendForm();
-        </script>
 
     {% elif pod.status == "sent" %}
         <div class="message success">

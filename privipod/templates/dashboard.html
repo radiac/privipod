@@ -1,13 +1,6 @@
 {% extends "app.html" %}
 
-{% block extra_head %}
-{{ block.super }}
-<script>
-const ppConf = {
-    podHashes: [{% for pod in pods %}"{{ pod.hash }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
-};
-</script>
-{% endblock %}
+{% block body_class %}{{ block.super }} page-dashboard{% endblock %}
 
 {% block content %}
 
@@ -26,14 +19,24 @@ const ppConf = {
     </thead>
     <tbody>
         {% for pod in pods %}
-        <tr>
+        <tr data-pod-hash="{{ pod.hash }}">
             <td><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name }}</a></td>
-            <td>{{ pod.created_at }}</td>
+            <td>{{ pod.created_at|date:"Y-m-d H:i" }}</td>
             <td>{{ pod.get_status_display }}</td>
-            <td>{{ pod.deadline|date:"Y-m-d H:i"|default:"No deadline" }}</td>
+            <td>
+                {% if pod.deadline %}
+                    <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time>
+                {% else %}
+                    No deadline
+                {% endif %}
+            </td>
             <td>
                 <a href="{% url 'pod_view' hash=pod.hash %}" class="button secondary">View</a>
-                <button onclick="PrivipodUI.copyUrl('{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}')" class="button secondary">Copy URL</button>
+                <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}" class="button secondary">Copy URL</button>
+                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" class="inline"data-confirm="Delete pod &quot;{{ pod.name|default:pod.hash }}&quot;?">
+                    {% csrf_token %}
+                    <button type="submit" class="button danger">Delete</button>
+                </form>
             </td>
         </tr>
         {% endfor %}
@@ -43,8 +46,4 @@ const ppConf = {
 <p class="message info">You haven't created any pods yet. <a href="{% url 'pod_create' %}">Create your first pod</a> to get started.</p>
 {% endif %}
 
-<script>
-PrivipodCrypto.cleanupStoredKeys(new Set(ppConf.podHashes));
-
-</script>
 {% endblock %}
