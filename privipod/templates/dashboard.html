@@ -7,41 +7,33 @@
 <p><a href="{% url 'pod_create' %}" class="button">Create New Pod</a></p>
 
 {% if pods %}
-<table>
-    <thead>
-        <tr>
-            <th>Name</th>
-            <th>Created</th>
-            <th>Status</th>
-            <th>Deadline</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for pod in pods %}
-        <tr data-pod-hash="{{ pod.hash }}">
-            <td><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name }}</a></td>
-            <td>{{ pod.created_at|date:"Y-m-d H:i" }}</td>
-            <td>{{ pod.get_status_display }}</td>
-            <td>
-                {% if pod.deadline %}
-                    <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time>
-                {% else %}
-                    No deadline
-                {% endif %}
-            </td>
-            <td>
-                <a href="{% url 'pod_view' hash=pod.hash %}" class="button secondary">View</a>
-                <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}" class="button secondary">Copy URL</button>
-                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" class="inline"data-confirm="Delete pod &quot;{{ pod.name|default:pod.hash }}&quot;?">
-                    {% csrf_token %}
-                    <button type="submit" class="button danger">Delete</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="pod-list">
+    {% for pod in pods %}
+    <div class="pod-card" data-pod-hash="{{ pod.hash }}">
+        <div class="pod-card-header">
+            <h2><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name }}</a></h2>
+            <span class="pod-status pod-status-{{ pod.status }}">{{ pod.get_status_display }}</span>
+        </div>
+        <div class="pod-meta">
+            <span>Created {{ pod.created_at|date:"Y-m-d H:i" }}</span>
+            {% if pod.deadline %}
+                <span>Expires <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time></span>
+            {% endif %}
+            {% if pod.self_destruct %}
+                <span class="pod-tag">Self-destruct</span>
+            {% endif %}
+        </div>
+        <div class="pod-actions">
+            <a href="{% url 'pod_view' hash=pod.hash %}" class="button secondary">View</a>
+            <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}" class="button secondary">Copy URL</button>
+            <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" class="inline" data-confirm="Delete pod &quot;{{ pod.name|default:pod.hash }}&quot;?">
+                {% csrf_token %}
+                <button type="submit" class="button danger">Delete</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
 {% else %}
 <p class="message info">You haven't created any pods yet. <a href="{% url 'pod_create' %}">Create your first pod</a> to get started.</p>
 {% endif %}

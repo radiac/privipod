@@ -9,7 +9,7 @@ Changelog
 Features:
 
 * Refactor into deployable project
-* UX improvements
+* UX improvements, improved mobile support
 * Security improvements
 
 

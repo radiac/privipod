@@ -196,7 +196,7 @@ class PrivipodUI {
 
   static initDashboard() {
     const podHashes = new Set(
-      Array.from(document.querySelectorAll('tr[data-pod-hash]')).map(tr => tr.dataset.podHash)
+      Array.from(document.querySelectorAll('[data-pod-hash]')).map(el => el.dataset.podHash)
     );
     PrivipodCrypto.cleanupStoredKeys(podHashes);
     PrivipodUI.initDeadlines();
@@ -398,10 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[data-export-key]').forEach(btn => {
     btn.addEventListener('click', () => PrivipodUI.exportKeyFile(btn.dataset.exportKey));
   });
-  document.querySelectorAll('[data-action="reload"]').forEach(btn => {
-    btn.addEventListener('click', () => location.reload());
-  });
-  document.querySelectorAll('form[data-confirm]').forEach(form => {
+document.querySelectorAll('form[data-confirm]').forEach(form => {
     form.addEventListener('submit', (e) => {
       if (!confirm(form.dataset.confirm)) e.preventDefault();
     });

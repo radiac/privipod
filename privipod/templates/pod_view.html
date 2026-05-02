@@ -29,7 +29,6 @@
             <div class="pod-url">{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}</div>
             <p>
                 <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}">Copy URL</button>
-                <button data-action="reload" class="button secondary">Refresh</button>
                 <a href="?send" class="button secondary">Send to myself</a>
                 <button data-export-key="{{ pod.hash }}" class="button secondary">Download Key</button>
             </p>

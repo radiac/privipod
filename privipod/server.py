@@ -74,8 +74,8 @@ app = Django(
 @app.admin
 class Pod(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        SENT = "sent", "Sent"
+        PENDING = "pending", "Waiting for secret"
+        SENT = "sent", "Secret received"
 
     class SecretType(models.TextChoices):
         TEXT = "text", "Text"
