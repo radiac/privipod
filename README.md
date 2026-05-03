@@ -1,5 +1,6 @@
 # Privipod
 
+[![PyPI](https://img.shields.io/pypi/v/privipod.svg)](https://pypi.org/project/privipod/)
 [![Documentation](https://readthedocs.org/projects/privipod/badge/?version=latest)](https://privipod.readthedocs.io/en/latest/)
 [![Tests](https://github.com/radiac/privipod/actions/workflows/ci.yml/badge.svg)](https://github.com/radiac/privipod/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/radiac/privipod/branch/main/graph/badge.svg)](https://codecov.io/gh/radiac/privipod)
