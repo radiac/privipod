@@ -4,3 +4,4 @@ static-collected/
 uv.lock
 *.egg-info
 .coverage
+dist/
