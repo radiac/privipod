@@ -3,3 +3,4 @@ __pycache__/
 static-collected/
 uv.lock
 *.egg-info
+.coverage

@@ -37,6 +37,7 @@ docs = [
 ]
 dev = [
     "pytest",
+    "pytest-cov",
     "pytest-playwright",
     "pytest-django",
     "pytest-asyncio",

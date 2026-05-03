@@ -105,9 +105,10 @@ class TestSelfDestructFlow:
         sender_page.click('button[type="submit"]')
         sender_page.wait_for_url(pod_url)
 
-        # Owner views secret (triggers deletion)
-        owner_page.goto(pod_url)
-        owner_page.wait_for_selector("#secretDisplay textarea", timeout=5000)
+        # Owner views secret (triggers deletion); wait for confirm-read to complete
+        with owner_page.expect_response(lambda r: "confirm-read" in r.url, timeout=10000):
+            owner_page.goto(pod_url)
+            owner_page.wait_for_selector("#secretDisplay textarea", timeout=5000)
 
         # Pod should now be gone
         owner_page.goto(pod_url)
@@ -133,9 +134,10 @@ class TestSelfDestructFlow:
         sender_page.click('button[type="submit"]')
         sender_page.wait_for_url(pod_url)
 
-        # Owner views; key should be removed from localStorage
-        owner_page.goto(pod_url)
-        owner_page.wait_for_selector("#secretDisplay textarea", timeout=5000)
+        # Owner views; key should be removed from localStorage after confirm-read
+        with owner_page.expect_response(lambda r: "confirm-read" in r.url, timeout=10000):
+            owner_page.goto(pod_url)
+            owner_page.wait_for_selector("#secretDisplay textarea", timeout=5000)
 
         key_in_storage = owner_page.evaluate(
             f"localStorage.getItem('privipod_key_{pod_hash}')"

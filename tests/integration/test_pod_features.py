@@ -73,7 +73,7 @@ class TestFileSizeLimit:
         sender_page.wait_for_url(pod_url)
 
         # Expect an error message about size
-        expect(sender_page.locator("ul.messages li.error")).to_contain_text("size")
+        expect(sender_page.locator("#pp-messages li[data-type='error']")).to_contain_text("size")
 
 
 class TestKeyManagement:

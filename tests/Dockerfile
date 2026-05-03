@@ -9,6 +9,6 @@ RUN uv run playwright install chromium
 
 # Start the server in the background, then run tests
 CMD ["sh", "-c", \
-    "uv run privipod.py 8765 --user=testuser --pass=testpass & \
+    "uv run python -m privipod 8765 --user=testuser --pass=testpass & \
      sleep 3 && \
      uv run pytest tests/ -v --tb=short"]

@@ -27,7 +27,7 @@ Privipod instance. You need to start the server before running pytest.
 .. code-block:: bash
 
     # Terminal 1 - start the server
-    uv run privipod.py 0:8765 --user=testuser --pass=testpass
+    uv run python -m privipod 0:8765 --user=testuser --pass=testpass
 
     # Terminal 2 - install browsers (first time only), then run tests
     uv run playwright install chromium
