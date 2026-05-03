@@ -62,7 +62,7 @@ sphinx-radiac-theme = { git = "https://github.com/radiac/sphinx_radiac_theme" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--cov=privipod --cov-report=term --cov-report=html"
+addopts = "--cov=privipod --cov-report=term --cov-report=html --cov-branch --cov-report=xml"
 testpaths = [
     "tests",
     "privipod",
