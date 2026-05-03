@@ -47,11 +47,30 @@ dev = [
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.packages.find]
+include = ["privipod*"]
+
+[tool.setuptools.package-data]
+privipod = ["templates/*", "static/*", "public/*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "privipod.__version__"}
+
 [tool.uv.sources]
 sphinx-radiac-theme = { git = "https://github.com/radiac/sphinx_radiac_theme" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = "--cov=privipod --cov-report=term --cov-report=html"
+testpaths = [
+    "tests",
+    "privipod",
+    "examples",
+]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["privipod"]
 
 [tool.ruff]
 line-length = 88
