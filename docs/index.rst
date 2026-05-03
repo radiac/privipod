@@ -11,7 +11,7 @@ browser, so the server never sees your unencrypted data.
     :maxdepth: 2
     :caption: Contents:
 
-    install
+    install/index
     usage
     security
     faq

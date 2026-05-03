@@ -26,23 +26,32 @@ Read the [full documentation](https://privipod.readthedocs.io/en/latest/).
 
 ## Quick start
 
-It's easiest to run with [uv](https://docs.astral.sh/uv/):
+It's easiest to run with [uv](https://docs.astral.sh/uv/) and
+[ngrok](https://ngrok.com/docs/guides/share-localhost/quickstart):
 
 ```bash
 # Start with a temporary database (data lost on shutdown)
 uvx privipod
 
-# Start with a permanent database and specify a username and password
-uvx privipod --store=privipod.db --user=admin --pass=changeme
+# Use ngrok to share with people outside your network
+ngrok http 0:8000
 ```
+
+Open `http://localhost:8000` in your browser. See the
+[installation docs](https://privipod.readthedocs.io/en/latest/install/) for
+more deployment options.
 
 Or you can install it and run it directly:
 
 ```bash
 pip install privipod
 privipod
+ngrok http 0:8000
 ```
 
-Open `http://localhost:8000` in your browser. See the
-[installation docs](https://privipod.readthedocs.io/en/latest/install.html) for
-deployment options (systemd, Docker, nginx, ngrok, Tailscale, Cloudflare Tunnel).
+And it takes several arguments to customise it:
+
+```bash
+# Start with a permanent database and specify a username and password
+uvx privipod --store=privipod.db --user=admin --pass=changeme 0:7000
+```
