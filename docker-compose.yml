@@ -7,11 +7,13 @@ services:
     volumes:
       - privipod_data:/data
     environment:
-      - PRIVIPOD_ADDRESS=0.0.0.0:8000
       - PRIVIPOD_STORE=/data/privipod.db
       - PRIVIPOD_USER=admin
+      # Set an initial password for the admin user - change after first login
       - PRIVIPOD_PASS=
+      # Generate with: uv run --with django python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
       - PRIVIPOD_SECRET_KEY=
+      # Your domain name, eg privipod.example.com - enables deployed mode
       - PRIVIPOD_HOSTNAME=
     expose:
       - "8000"

@@ -38,7 +38,7 @@ Secret key
 ==========
 
 Privipod uses a secret key to sign sessions and CSRF tokens. If you do not set one,
-a random key is generated on every startup — this logs a warning and means all users
+a random key is generated on every startup - this logs a warning and means all users
 are logged out whenever the process restarts.
 
 Set a persistent key via the ``PRIVIPOD_SECRET_KEY`` environment variable:
@@ -48,7 +48,7 @@ Set a persistent key via the ``PRIVIPOD_SECRET_KEY`` environment variable:
     export PRIVIPOD_SECRET_KEY="your-long-random-string"
 
 The key should be at least 50 characters long, contain a mix of letters, digits, and
-symbols, and be generated randomly — never use a memorable phrase or reuse a key from
+symbols, and be generated randomly - never use a memorable phrase or reuse a key from
 another project.
 
 In the Docker deployment, add it to ``docker-compose.yml``::
@@ -110,7 +110,7 @@ tunnel are trusted.
 .. note::
 
     ``http://localhost`` is a secure context, but an ngrok or Cloudflare Tunnel
-    URL is a **different browser origin** — private keys stored in
+    URL is a **different browser origin** - private keys stored in
     ``localStorage`` are not shared between the two. Always use the same origin
     consistently.
 
@@ -133,5 +133,5 @@ For Docker/Caddy or systemd/nginx deployments. Providing a hostname:
 
         proxy_set_header X-Forwarded-Proto $scheme;
 
-    Privipod's app port must **not** be publicly reachable — only the proxy
+    Privipod's app port must **not** be publicly reachable - only the proxy
     should connect to it.

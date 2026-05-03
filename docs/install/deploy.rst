@@ -18,19 +18,38 @@ domain in the ``Caddyfile``, and start:
     curl -O --output-dir docker https://raw.githubusercontent.com/radiac/privipod/main/docker/Dockerfile
     curl -O --output-dir docker https://raw.githubusercontent.com/radiac/privipod/main/docker/Caddyfile
 
-    # Edit docker/Caddyfile - replace privipod.example.com with your domain
+Then edit the three required values in ``docker-compose.yml``:
+
+- ``PRIVIPOD_HOSTNAME`` - your domain name (e.g. ``privipod.example.com``). This
+  enables deployed mode: strict ``ALLOWED_HOSTS`` checking, HSTS headers, and
+  correct share link generation.
+- ``PRIVIPOD_SECRET_KEY`` - a random secret key for Django session signing. You can
+  generate a strong one with:
+
+  .. code-block:: bash
+
+      uv run --with django python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+
+- ``PRIVIPOD_PASS`` - password for the admin user. Set it here for an initial password,
+  then change it once logged in.
+
+Also replace ``privipod.example.com`` in ``docker/Caddyfile`` with your domain:
+
+.. code-block:: bash
+
     $EDITOR docker/Caddyfile
+    $EDITOR docker-compose.yml
 
     docker compose up -d
 
-Caddy handles TLS automatically via Let's Encrypt. Check logs for the auto-generated
-admin user credentials with:
+Caddy handles TLS automatically via Let's Encrypt. Check logs for confirmation
+that the service started in deployed mode:
 
 .. code-block:: bash
 
     docker compose logs -f
 
-Don't forget to change the password once you've logged in.
+You can change the admin password after logging in via the Django admin at ``/admin/``.
 
 
 Systemd service

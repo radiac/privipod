@@ -1,6 +1,7 @@
-# Project muist be configured in privipod.config before importing this module
+# Project must be configured in privipod.config before importing this module
 import asyncio
 import json
+import logging
 import os
 import secrets
 
@@ -21,6 +22,8 @@ with defer:
     from django.views.decorators.http import require_POST
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 MAX_SIZE_MB = config.max_size_mb
 MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
@@ -44,7 +47,7 @@ trusted_origins = [f"https://{h}" for h in config.hostnames]
 secret_key = config.secret_key
 if not secret_key:
     secret_key = get_random_secret_key()
-    print("WARNING: No secret key set, generating one instead - see docs for details")
+    logger.warning("No secret key set, generating one instead - see docs for details")
 
 app = Django(
     APP_NAME="privipod",
@@ -314,13 +317,19 @@ def pod_view(request, hash):
                     messages.error(request, "Invalid encrypted filename.")
                     return redirect(reverse("pod_view", kwargs={"hash": hash}))
 
-            # Store encrypted secret
-            pod.encrypted_secret = encrypted_data.encode("utf-8")
-            pod.secret_type = send_form.cleaned_data["secret_type"]
+            # Store encrypted secret atomically; bail if another sender got there first
+            update_fields = {
+                "encrypted_secret": encrypted_data.encode("utf-8"),
+                "secret_type": send_form.cleaned_data["secret_type"],
+                "status": Pod.Status.SENT,
+            }
             if enc_fn:
-                pod.encrypted_filename = enc_fn.encode("utf-8")
-            pod.status = Pod.Status.SENT
-            pod.save()
+                update_fields["encrypted_filename"] = enc_fn.encode("utf-8")
+            if not Pod.objects.filter(hash=hash, status=Pod.Status.PENDING).update(
+                **update_fields
+            ):
+                messages.error(request, "A secret has already been sent to this pod.")
+                return redirect(reverse("pod_view", kwargs={"hash": hash}))
 
             return redirect(reverse("pod_view", kwargs={"hash": hash}))
 
@@ -412,7 +421,7 @@ async def cleanup_expired_pods():
         ).acount()
         if count > 0:
             await Pod.objects.filter(deadline__isnull=False, deadline__lt=now).adelete()
-            print(f"Deleted {count} expired pod(s)")
+            logger.info("Deleted %d expired pod(s)", count)
 
 
 def main():
@@ -421,18 +430,14 @@ def main():
 
     If running in debug then does not clean up expired pods
     """
-    print("Starting Privipod...")
+    logger.info("Starting Privipod...")
     if deployed:
-        print(f"Running in deployed mode: hostname(s) {', '.join(config.hostnames)}")
-        print(
-            "Ensure your reverse proxy strips/overwrites inbound X-Forwarded-* headers."
-        )
+        logger.info("Running in deployed mode: hostname(s) %s", ", ".join(config.hostnames))
+        logger.info("Ensure your reverse proxy strips/overwrites inbound X-Forwarded-* headers.")
     else:
-        print("Running in untrusted host mode.")
-    print(
-        f"Storage mode: {f'disk ({SQLITE_DATABASE})' if config.store else 'in-memory'}"
-    )
-    print(f"Max upload size: {MAX_SIZE_MB}MB")
+        logger.info("Running in untrusted host mode.")
+    logger.info("Storage mode: %s", f"disk ({SQLITE_DATABASE})" if config.store else "in-memory")
+    logger.info("Max upload size: %dMB", MAX_SIZE_MB)
 
     if config.debug:
         app.run(config.address, username=config.user, password=config.password)
@@ -456,4 +461,4 @@ def main():
     try:
         loop.run_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        logger.info("Shutting down...")

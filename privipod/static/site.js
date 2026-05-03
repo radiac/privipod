@@ -278,12 +278,16 @@ class PrivipodUI {
       await PrivipodUI.renderSecret(display, decrypted, secretType, privateKey, encryptedFilename);
       keyRecovery.style.display = 'none';
       if (isSelfDestruct) {
+        try {
+          await fetch(`/pod/${podHash}/confirm-read/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': PrivipodUI.getCsrfToken() },
+            credentials: 'same-origin',
+          });
+        } catch (err) {
+          console.error('confirm-read failed:', err);
+        }
         PrivipodCrypto.removeKey(podHash);
-        fetch(`/pod/${podHash}/confirm-read/`, {
-          method: 'POST',
-          headers: { 'X-CSRFToken': PrivipodUI.getCsrfToken() },
-          credentials: 'same-origin',
-        }).catch(err => console.error('confirm-read failed:', err));
       } else {
         keyActions.style.display = 'block';
       }
@@ -337,6 +341,8 @@ class PrivipodUI {
 
     document.getElementById('sendForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const submitBtn = e.target.querySelector('[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       const inputType = document.querySelector('input[name="input_type"]:checked').value;
       let data;
       if (inputType === 'text') {
@@ -367,6 +373,7 @@ class PrivipodUI {
         e.target.submit();
       } catch (err) {
         e.target.classList.remove('loading');
+        if (submitBtn) submitBtn.disabled = false;
         PrivipodUI.showToast(`Encryption failed: ${err.message}`, 'error');
       }
     });

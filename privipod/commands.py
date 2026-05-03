@@ -1,3 +1,5 @@
+import logging
+
 import click
 
 from . import config
@@ -68,6 +70,11 @@ def cli(address, store, max_size, user, password, secret_key, debug, hostnames):
     config.user = user
     config.password = password
     config.secret_key = secret_key
+
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
     from . import server
 
