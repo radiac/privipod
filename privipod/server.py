@@ -446,7 +446,7 @@ def main():
     logger.info("Max upload size: %dMB", MAX_SIZE_MB)
 
     if config.debug:
-        app.run(config.address, username=config.user, password=config.password)
+        app.run(config.address or "0.0.0.0:8000", username=config.user, password=config.password)
         return
 
     # Create event loop
@@ -455,7 +455,7 @@ def main():
 
     loop.create_task(
         app.create_server(
-            config.address,
+            config.address or "0.0.0.0:8000",
             log_level="debug" if config.debug else "info",
             is_prod=not config.debug,
             username=config.user,
