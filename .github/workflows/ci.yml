@@ -18,7 +18,7 @@ jobs:
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium
       - name: Start server
-        run: uv run python -m privipod --store /tmp/test.db --user admin --pass test &
+        run: uv run python -m privipod --store=/tmp/test.db --user=testuser --pass=testpass &
       - name: Wait for server
         run: until curl -sf --max-time 1 http://localhost:8000/health/; do sleep 1; done
       - name: Run tests
