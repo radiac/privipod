@@ -32,15 +32,21 @@ class TestTextSecretFlow:
         pod_url = create_pod(owner_page)
 
         # Owner sees "Waiting for secret"
-        expect(owner_page.locator(".message.info")).to_contain_text("Waiting for secret")
+        expect(owner_page.locator(".message.info")).to_contain_text(
+            "Waiting for secret"
+        )
 
         # Sender visits pod URL and sends a secret
         sender_page.goto(pod_url)
-        expect(sender_page.locator(".message.info")).to_contain_text("encrypted in your browser")
+        expect(sender_page.locator(".message.info")).to_contain_text(
+            "encrypted in your browser"
+        )
         sender_page.fill("#secretText", "my-secret-value-12345")
         sender_page.click('button[type="submit"]')
         sender_page.wait_for_url(pod_url)
-        expect(sender_page.locator(".message.success")).to_contain_text("Pod has been sent")
+        expect(sender_page.locator(".message.success")).to_contain_text(
+            "Pod has been sent"
+        )
 
         # Owner reloads and sees decrypted secret
         owner_page.goto(pod_url)

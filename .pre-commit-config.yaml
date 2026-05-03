@@ -1,0 +1,17 @@
+exclude: .*migrations\/.*
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  # https://github.com/pre-commit/pre-commit-hooks/releases/tag/v6.0.0
+  rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c
+  hooks:
+  - id: check-merge-conflict
+  - id: trailing-whitespace
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  # https://github.com/astral-sh/ruff-pre-commit/releases/tag/v0.15.12
+  rev: 6fec9b7edb08fd9989088709d864a7826dc74e80
+  hooks:
+  # Run the linter with import sorting
+  - id: ruff
+    args: ["check", "--select", "I", "--fix"]
+  # Run the formatter
+  - id: ruff-format

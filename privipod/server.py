@@ -432,11 +432,17 @@ def main():
     """
     logger.info("Starting Privipod...")
     if deployed:
-        logger.info("Running in deployed mode: hostname(s) %s", ", ".join(config.hostnames))
-        logger.info("Ensure your reverse proxy strips/overwrites inbound X-Forwarded-* headers.")
+        logger.info(
+            "Running in deployed mode: hostname(s) %s", ", ".join(config.hostnames)
+        )
+        logger.info(
+            "Ensure your reverse proxy strips/overwrites inbound X-Forwarded-* headers."
+        )
     else:
         logger.info("Running in untrusted host mode.")
-    logger.info("Storage mode: %s", f"disk ({SQLITE_DATABASE})" if config.store else "in-memory")
+    logger.info(
+        "Storage mode: %s", f"disk ({SQLITE_DATABASE})" if config.store else "in-memory"
+    )
     logger.info("Max upload size: %dMB", MAX_SIZE_MB)
 
     if config.debug:

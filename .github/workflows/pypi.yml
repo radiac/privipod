@@ -1,0 +1,24 @@
+name: PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    name: Build and publish to PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+    # https://github.com/actions/checkout/releases/tag/v6.0.2
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    # https://github.com/astral-sh/setup-uv/releases/tag/v8.1.0
+    - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+    - name: Build
+      run: uv build
+    - name: Publish to PyPI
+      if: startsWith(github.ref, 'refs/tags')
+      # https://github.com/pypa/gh-action-pypi-publish/releases/tag/v1.14.0
+      uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b

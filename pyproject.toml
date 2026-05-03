@@ -1,8 +1,18 @@
 [project]
 name = "privipod"
-version = "0.1.0"
-description = "Lightweight end-to-end encrypted one-time secret transfer"
+description = "Lightweight self-hosted service for sharing secrets and files"
+dynamic = ["version"]
 readme = "README.md"
+license = "BSD-3-Clause"
+authors = [
+    { name = "Richard Terry", email = "code@radiac.net" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
 requires-python = ">=3.11"
 dependencies = [
     "nanodjango",
@@ -12,6 +22,13 @@ dependencies = [
 
 [project.scripts]
 privipod = "privipod.commands:invoke"
+
+[project.urls]
+Homepage = "https://radiac.net/projects/privipod/"
+Documentation = "https://privipod.readthedocs.io/en/latest/"
+Repository = "https://github.com/radiac/privipod"
+Issues = "https://github.com/radiac/privipod/issues"
+Changelog = "https://privipod.readthedocs.io/en/latest/changelog.html"
 
 [dependency-groups]
 docs = [
@@ -28,8 +45,22 @@ dev = [
     "requests",
 ]
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.uv.sources]
 sphinx-radiac-theme = { git = "https://github.com/radiac/sphinx_radiac_theme" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 88
+lint.select = ["E", "F"]
+lint.ignore = [
+    "E501",  # line length
+]
+exclude = [
+    ".git",
+    "dist",
+]

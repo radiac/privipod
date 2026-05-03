@@ -4,8 +4,8 @@ Feature-specific tests for Privipod pods.
 These tests require a running Privipod server. See conftest.py for setup.
 """
 
-import requests
 import pytest
+import requests
 from playwright.sync_api import Page, expect
 
 from .conftest import BASE_URL, TEST_PASS, TEST_USER
@@ -17,7 +17,11 @@ def get_auth_session() -> requests.Session:
     csrf = session.cookies.get("csrftoken")
     session.post(
         f"{BASE_URL}/login/",
-        data={"username": TEST_USER, "password": TEST_PASS, "csrfmiddlewaretoken": csrf},
+        data={
+            "username": TEST_USER,
+            "password": TEST_PASS,
+            "csrfmiddlewaretoken": csrf,
+        },
         headers={"Referer": f"{BASE_URL}/login/"},
         allow_redirects=True,
     )
@@ -47,7 +51,9 @@ class TestExpiredPod:
 
 
 class TestFileSizeLimit:
-    def test_oversized_payload_rejected(self, owner_page: Page, sender_page: Page, tmp_path):
+    def test_oversized_payload_rejected(
+        self, owner_page: Page, sender_page: Page, tmp_path
+    ):
         """Payloads exceeding MAX_SIZE_MB are rejected."""
         owner_page.goto(f"{BASE_URL}/pod/create/")
         owner_page.wait_for_selector("#createPodForm")
@@ -90,7 +96,9 @@ class TestKeyManagement:
         owner_page.wait_for_url(f"{BASE_URL}/pod/**")
         pod_hash = owner_page.url.rstrip("/").split("/")[-1]
 
-        key_data = owner_page.evaluate(f"localStorage.getItem('privipod_key_{pod_hash}')")
+        key_data = owner_page.evaluate(
+            f"localStorage.getItem('privipod_key_{pod_hash}')"
+        )
         assert key_data is not None, "Private key should be in localStorage"
         assert "kty" in key_data, "localStorage value should be a JWK"
 
@@ -117,7 +125,8 @@ class TestKeyManagement:
         sender_page.wait_for_url(pod_url)
 
         # Open pod in a fresh context (no key in localStorage)
-        from .conftest import TEST_USER, TEST_PASS
+        from .conftest import TEST_PASS, TEST_USER
+
         fresh_context = browser.new_context()
         fresh_page = fresh_context.new_page()
         fresh_page.goto(f"{BASE_URL}/login/")
@@ -179,7 +188,9 @@ class TestFileSecrets:
 
 
 class TestDatabaseIsolation:
-    def test_encrypted_secret_not_readable_plaintext(self, owner_page: Page, sender_page: Page):
+    def test_encrypted_secret_not_readable_plaintext(
+        self, owner_page: Page, sender_page: Page
+    ):
         """The encrypted_secret field in the DB contains ciphertext, not plaintext."""
         owner_page.goto(f"{BASE_URL}/pod/create/")
         owner_page.wait_for_selector("#createPodForm")
@@ -199,7 +210,9 @@ class TestDatabaseIsolation:
             "Plaintext secret must not appear in server-rendered HTML"
         )
 
-    def test_filename_not_in_server_html(self, owner_page: Page, sender_page: Page, tmp_path):
+    def test_filename_not_in_server_html(
+        self, owner_page: Page, sender_page: Page, tmp_path
+    ):
         """The original filename is encrypted and must not appear in server-rendered HTML."""
         owner_page.goto(f"{BASE_URL}/pod/create/")
         owner_page.wait_for_selector("#createPodForm")
