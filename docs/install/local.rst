@@ -21,7 +21,7 @@ machine. Free accounts get a random subdomain; paid accounts get a fixed domain.
     uvx privipod 0:8000
 
     # In a second terminal:
-    ngrok http 0:8000
+    ngrok http 127.0.0.1:8000
 
 ngrok prints a URL like ``https://abc123.ngrok-free.app`` - share that with your
 sender.
