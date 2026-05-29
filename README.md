@@ -34,7 +34,7 @@ It's easiest to run with [uv](https://docs.astral.sh/uv/) and
 uvx privipod
 
 # Use ngrok to share with people outside your network
-ngrok http 0:8000
+ngrok http 127.0.0.1:8000
 ```
 
 Open `http://localhost:8000` in your browser. See the
@@ -46,7 +46,7 @@ Or you can install it and run it directly:
 ```bash
 pip install privipod
 privipod
-ngrok http 0:8000
+ngrok http 127.0.0.1:8000
 ```
 
 And it takes several arguments to customise it:
