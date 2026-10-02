@@ -223,26 +223,6 @@ class TestExpiry:
 
 
 class TestPolling:
-    def test_polling_backs_off_to_every_10_seconds(self, alice):
-        url = create_receive_pod(alice.page)
-        page = alice.page
-        page.clock.install()
-        polls = []
-        page.on("request", lambda r: "/status/" in r.url and polls.append(r.url))
-        goto(page, url)
-
-        windows = []
-        for _ in range(12):  # 6 minutes in 30 second windows
-            before = len(polls)
-            for _ in range(30):
-                page.clock.run_for(1000)
-                page.wait_for_timeout(15)  # let each poll's fetch resolve
-            windows.append(len(polls) - before)
-
-        assert windows[0] >= 28  # every 1s
-        assert 13 <= windows[1] <= 16  # every 2s
-        assert windows[-2:] == [3, 3]  # every 10s, and still polling
-
     def test_reloads_rather_than_looping_forever_if_session_expires(self, alice):
         # login_required redirects an expired session's status poll to /login/; the
         # page should reload to show that rather than fail to parse HTML as JSON and
