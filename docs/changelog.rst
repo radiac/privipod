@@ -2,8 +2,8 @@
 Changelog
 =========
 
-0.3.0, TBC
-----------
+0.3.0, 2026-10-03
+-----------------
 
 Features:
 
@@ -16,7 +16,8 @@ Features:
 Changes:
 
 * Pod urls have changed
-* Expired and self-destructed pods destroy the secret but remain until deleted for logs
+* Expired and self-destructed pods destroy the secret, but aren't deleted automatically
+  so the logs are retained
 
 Bugfixes:
 
