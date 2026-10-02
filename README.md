@@ -15,13 +15,25 @@ Read the [full documentation](https://privipod.readthedocs.io/en/latest/).
 
 ## Receive a secret
 
-1. Run Privipod somewhere both of you can access.
+1. Run Privipod somewhere both of you can access - for example, remotely on a VPS, or
+   locally using ngrok.
 2. Create a "pod" - the browser generates a key pair, stores your private key locally,
    and sends the public key to the server.
 3. Share the pod URL with the sender.
-4. The sender visits the URL and the browser uses your public key to encrypt their
+4. The sender visits the URL and their browser uses your public key to encrypt their
    secret, then sends it to the Privipod server.
 5. You collect the secret, and the browser uses your private key to decrypt it.
+
+
+## Send a secret
+
+1. Create a send pod with your secret, for another registered user or an anonymous
+   recipient.
+2. The browser encrypts the secret with the recipient's public key - their identity
+   key, or a one-off key pair for an anonymous recipient - and sends it to the server.
+3. Share the pod URL with the recipient, and for anonymous recipients, send the access
+   code or key file separately.
+4. The recipient visits the URL, and their browser decrypts the secret.
 
 
 ## Quick start

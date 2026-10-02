@@ -7,7 +7,7 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from privipod.server import Pod
+from privipod.server import ReceiveLog, ReceivePod
 
 VALID_ENCRYPTED = json.dumps(
     {"encryptedKey": "abc123", "encryptedData": "xyz456", "iv": "ivval"}
@@ -27,11 +27,12 @@ class TestPodViewGet:
         assert resp.status_code == 200
         assert "not" in resp.templates[0].name.lower() or "not_found" in resp.templates[0].name
 
-    def test_expired_pod_shows_expired_state(self, auth_client, make_pod):
+    def test_expired_pending_pod_is_destroyed_on_view(self, auth_client, make_pod):
         pod = make_pod(deadline=timezone.now() - timedelta(hours=1))
         resp = auth_client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
         assert resp.status_code == 200
-        assert resp.context["is_owner"] is False
+        pod.refresh_from_db()
+        assert pod.status == ReceivePod.Status.DESTROYED
 
     def test_require_sender_auth_anonymous_redirects_to_login(self, client, make_pod):
         pod = make_pod(require_sender_auth=True, hash="auth-required")
@@ -56,14 +57,66 @@ class TestPodViewGet:
 
     def test_owner_sees_encrypted_secret_when_sent(self, auth_client, make_pod):
         pod = make_pod(
-            status=Pod.Status.SENT,
+            status=ReceivePod.Status.RECEIVED,
             encrypted_secret=VALID_ENCRYPTED.encode(),
-            secret_type=Pod.SecretType.TEXT,
+            secret_type=ReceivePod.SecretType.TEXT,
             hash="owner-sent-pod",
         )
         resp = auth_client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
         assert resp.status_code == 200
         assert "encrypted_secret_json" in resp.context
+
+    def test_expired_sent_pod_is_destroyed_on_view(self, auth_client, make_pod):
+        pod = make_pod(
+            status=ReceivePod.Status.RECEIVED,
+            encrypted_secret=VALID_ENCRYPTED.encode(),
+            secret_type=ReceivePod.SecretType.TEXT,
+            hash="owner-expired-sent-pod",
+            deadline=timezone.now() - timedelta(hours=1),
+        )
+        resp = auth_client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
+        assert resp.status_code == 200
+        assert "encrypted_secret_json" not in resp.context
+        pod.refresh_from_db()
+        assert pod.status == ReceivePod.Status.DESTROYED
+        assert pod.encrypted_secret is None
+        assert pod.logs.filter(
+            event=ReceiveLog.Event.DESTROYED, detail="expired"
+        ).exists()
+
+
+@pytest.mark.django_db
+class TestPodViewLogs:
+    def test_owner_received_pod_logs_accessed(self, auth_client, user, make_pod):
+        pod = make_pod(
+            status=ReceivePod.Status.RECEIVED,
+            encrypted_secret=VALID_ENCRYPTED.encode(),
+            hash="logs-accessed",
+        )
+        auth_client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
+        log = pod.logs.get()
+        assert log.event == ReceiveLog.Event.ACCESSED
+        assert log.user == user
+
+    def test_owner_pending_pod_does_not_log_accessed(self, auth_client, make_pod):
+        pod = make_pod(hash="logs-pending")
+        auth_client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
+        assert not pod.logs.exists()
+
+    def test_owner_sees_logs(self, auth_client, make_pod):
+        pod = make_pod(hash="logs-owner")
+        pod.logs.create(event=ReceiveLog.Event.DECRYPTED)
+        resp = auth_client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
+        assert list(resp.context["logs"]) == list(pod.logs.all())
+        assert b"Access Log" in resp.content
+
+    def test_non_owner_does_not_see_logs(self, client, other_user, make_pod):
+        pod = make_pod(hash="logs-non-owner")
+        pod.logs.create(event=ReceiveLog.Event.DECRYPTED)
+        client.force_login(other_user)
+        resp = client.get(reverse("pod_view", kwargs={"hash": pod.hash}))
+        assert "logs" not in resp.context
+        assert b"Access Log" not in resp.content
 
 
 @pytest.mark.django_db
@@ -80,7 +133,7 @@ class TestPodViewPost:
         )
         assert resp.status_code == 302
         pod.refresh_from_db()
-        assert pod.status == Pod.Status.SENT
+        assert pod.status == ReceivePod.Status.RECEIVED
         assert pod.encrypted_secret is not None
 
     def test_valid_post_stores_filename(self, client, other_user, make_pod):
@@ -111,7 +164,7 @@ class TestPodViewPost:
         )
         assert resp.status_code == 302
         pod.refresh_from_db()
-        assert pod.status == Pod.Status.PENDING
+        assert pod.status == ReceivePod.Status.PENDING
 
     def test_invalid_json_encrypted_filename_redirects_with_error(
         self, client, other_user, make_pod
@@ -128,7 +181,7 @@ class TestPodViewPost:
         )
         assert resp.status_code == 302
         pod.refresh_from_db()
-        assert pod.status == Pod.Status.PENDING
+        assert pod.status == ReceivePod.Status.PENDING
 
     def test_oversized_data_redirects_with_error(self, client, other_user, make_pod):
         from privipod.server import MAX_SIZE_BYTES
@@ -142,7 +195,7 @@ class TestPodViewPost:
         )
         assert resp.status_code == 302
         pod.refresh_from_db()
-        assert pod.status == Pod.Status.PENDING
+        assert pod.status == ReceivePod.Status.PENDING
 
     def test_atomic_update_returns_zero_for_already_sent_pod(self, make_pod):
         """The atomic PENDING filter returns 0 rows when pod is already SENT.
@@ -152,12 +205,12 @@ class TestPodViewPost:
         """
         pod = make_pod(
             hash="already-sent-pod",
-            status=Pod.Status.SENT,
+            status=ReceivePod.Status.RECEIVED,
             encrypted_secret=VALID_ENCRYPTED.encode(),
         )
-        updated = Pod.objects.filter(
-            hash=pod.hash, status=Pod.Status.PENDING
-        ).update(status=Pod.Status.SENT)
+        updated = ReceivePod.objects.filter(
+            hash=pod.hash, status=ReceivePod.Status.PENDING
+        ).update(status=ReceivePod.Status.RECEIVED)
         assert updated == 0
 
     def test_owner_cannot_send_without_query_param(self, auth_client, make_pod):
@@ -167,9 +220,9 @@ class TestPodViewPost:
             {"encrypted_data": VALID_ENCRYPTED, "secret_type": "text"},
         )
         pod.refresh_from_db()
-        assert pod.status == Pod.Status.PENDING
+        assert pod.status == ReceivePod.Status.PENDING
 
-    def test_post_to_expired_pod_does_not_update(self, client, other_user, make_pod):
+    def test_post_to_expired_pod_destroys_not_stores(self, client, other_user, make_pod):
         pod = make_pod(
             hash="expired-post-pod",
             deadline=timezone.now() - timedelta(hours=1),
@@ -180,4 +233,5 @@ class TestPodViewPost:
             {"encrypted_data": VALID_ENCRYPTED, "secret_type": "text"},
         )
         pod.refresh_from_db()
-        assert pod.status == Pod.Status.PENDING
+        assert pod.status == ReceivePod.Status.DESTROYED
+        assert pod.encrypted_secret is None

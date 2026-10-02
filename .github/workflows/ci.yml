@@ -17,14 +17,15 @@ jobs:
         run: uv sync --group dev
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium
-      - name: Start server
-        run: uv run python -m privipod --store=/tmp/test.db --user=testuser --pass=testpass &
-      - name: Wait for server
-        run: until curl -sf --max-time 1 http://localhost:8000/health/; do sleep 1; done
       - name: Run tests
-        env:
-          PRIVIPOD_URL: http://localhost:8000
-        run: uv run pytest tests/
+        run: uv run pytest tests/ --tracing retain-on-failure
+      - name: Upload Playwright traces
+        if: failure()
+        # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: playwright-traces
+          path: test-results/
       - name: Upload coverage to Codecov
         # https://github.com/codecov/codecov-action/releases/tag/v6.0.0
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2

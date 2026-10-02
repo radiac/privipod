@@ -1,0 +1,85 @@
+{% extends "app.html" %}
+
+{% block body_class %}{{ block.super }} page-send-create{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<script id="pp-conf" type="application/json">{
+    "podHash": "{{ pod_hash|escapejs }}",
+    "allowServerKeys": {{ allow_server_keys|yesno:"true,false" }}
+}</script>
+{% endblock %}
+
+{% block content %}
+
+<noscript>
+    <div class="message error">JavaScript is required to create a send pod.</div>
+</noscript>
+
+<form method="post" id="sendPodForm">
+    {% csrf_token %}
+    {{ form.errors }}
+    {{ form.non_field_errors }}
+
+    {% for field in form.hidden_fields %}{{ field }}{% endfor %}
+
+    {{ form.name.errors }}
+    <p>{{ form.name.label_tag }}{{ form.name }}</p>
+
+    {{ form.recipient_username.errors }}
+    <p>{{ form.recipient_username.label_tag }}{{ form.recipient_username }}</p>
+    <p id="recipientKeyStatus" hidden></p>
+
+    {% if allow_server_keys %}
+    <div id="anonAccessCodeSection">
+        <p>
+            <label for="sendCreateAccessCode">Access code for recipient</label>
+            <input type="password" id="sendCreateAccessCode" autocomplete="new-password" placeholder="Choose a strong access code">
+            <small>The recipient will use this to retrieve their decryption key. Send it to them via a separate channel.</small>
+        </p>
+    </div>
+    {% else %}
+    <div id="anonKeyfileSection">
+        <div class="message info">
+            A private key file will download automatically when you submit. Send it to the recipient via a separate, secure channel &mdash; anyone with both the pod link and the key file can read the secret.
+        </div>
+    </div>
+    {% endif %}
+
+    {{ form.deadline.errors }}
+    <p>{{ form.deadline.label_tag }}{{ form.deadline }}</p>
+
+    {{ form.self_destruct.errors }}
+    <p>
+      {{ form.self_destruct.label_tag }}
+      {{ form.self_destruct }}
+      <span class="helptext">{{ form.self_destruct.help_text }}</span>
+    </p>
+
+    <hr>
+
+    <p>
+        <label for="input_type-text">Text Secret</label>
+        <input id="input_type-text" type="radio" name="input_type" value="text" checked>
+    </p>
+    <p>
+        <label for="input_type-file">File</label>
+        <input id="input_type-file" type="radio" name="input_type" value="file">
+    </p>
+
+    <p id="textInput">
+        <label for="secretText">Enter your secret:</label>
+        <textarea id="secretText" placeholder="Enter secret text here..."></textarea>
+    </p>
+
+    <p id="fileInput">
+        <label for="secretFile">Select file:</label>
+        <input type="file" id="secretFile">
+    </p>
+
+    <p class="form-actions">
+        <button type="submit" id="sendPodSubmit">Send secret</button>
+    </p>
+</form>
+
+{% endblock %}

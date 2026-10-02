@@ -52,7 +52,7 @@ include-package-data = true
 include = ["privipod*"]
 
 [tool.setuptools.package-data]
-privipod = ["templates/*", "static/*", "public/*"]
+privipod = ["templates/**/*", "static/**/*", "public/**/*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "privipod.__version__"}

@@ -5,3 +5,4 @@ uv.lock
 *.egg-info
 .coverage
 dist/
+coverage.xml

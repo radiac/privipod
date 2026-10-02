@@ -2,16 +2,48 @@
 
 {% block body_class %}{{ block.super }} page-dashboard{% endblock %}
 
+{% block extra_head %}
+{{ block.super }}
+<script id="pp-conf" type="application/json">{"allowServerKeys": {{ allow_server_keys|yesno:"true,false" }}, "hasIdentityKey": {{ has_identity_key|yesno:"true,false" }}, "manageKeysUrl": "{% url 'manage_keys' %}"}</script>
+{% endblock %}
+
 {% block content %}
 
-<p><a href="{% url 'pod_create' %}" class="button">Create New Pod</a></p>
+{% if has_identity_key %}
+<div id="identity-key-missing-warning" hidden class="message warning">
+    You have an identity key on the server but not in your browser - you won't be able to decrypt secrets sent to you.
+    <a href="{% url 'manage_keys' %}" class="button secondary">Manage key</a>
+</div>
+{% endif %}
 
-{% if pods %}
+{% if not onboarding %}
+<div class="message warning banner" id="identity-key-banner"{% if has_identity_key %} hidden{% endif %}>
+    <div id="identity-key-banner-content" class="banner-content">
+    {% if has_identity_key %}
+        <p>Your identity key has been generated. You'll want to copy this somewhere. <a href="{% url 'manage_keys' %}">Manage keys</a></p>
+    {% else %}
+        <strong>Set up your identity key</strong> to allow other users to send you secrets directly.
+        <p id="identity-key-generating">Generating your key…</p>
+    {% endif %}
+    </div>
+    <button type="button" id="identityKeyBannerClose" class="banner-close" aria-label="Dismiss" hidden>&times;</button>
+</div>
+{% endif %}
+
+<p>
+    <a href="{% url 'pod_create' %}" class="button">Receive a Secret</a>
+    <a href="{% url 'send_create' %}" class="button secondary">Send a Secret</a>
+    <a href="{% url 'manage_keys' %}" class="button secondary">Manage Keys</a>
+</p>
+
+{% if receive_pods %}
+<h2>Receive Pods</h2>
 <div class="pod-list">
-    {% for pod in pods %}
+    {% for pod in receive_pods %}
     <div class="pod-card" data-pod-hash="{{ pod.hash }}">
+      <div>
         <div class="pod-card-header">
-            <h2><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name }}</a></h2>
+            <h2><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name|default:"(unnamed)" }}</a></h2>
             <span class="pod-status pod-status-{{ pod.status }}">{{ pod.get_status_display }}</span>
         </div>
         <div class="pod-meta">
@@ -23,6 +55,8 @@
                 <span class="pod-tag">Self-destruct</span>
             {% endif %}
         </div>
+      </div>
+      <div>
         <div class="pod-actions">
             <a href="{% url 'pod_view' hash=pod.hash %}" class="button secondary">View</a>
             <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}" class="button secondary">Copy URL</button>
@@ -31,11 +65,58 @@
                 <button type="submit" class="button danger">Delete</button>
             </form>
         </div>
+      </div>
     </div>
     {% endfor %}
 </div>
-{% else %}
-<p class="message info">You haven't created any pods yet. <a href="{% url 'pod_create' %}">Create your first pod</a> to get started.</p>
+{% elif not send_pods %}
+<p class="message info">You haven't created any pods yet. <a href="{% url 'pod_create' %}">Receive a secret</a> or <a href="{% url 'send_create' %}">send one</a>.</p>
+{% endif %}
+
+{% if send_pods %}
+<h2>Send Pods</h2>
+<div class="pod-list">
+    {% for pod in send_pods %}
+    <div class="pod-card">
+      <div>
+        <div class="pod-card-header">
+            <h2><a href="{% url 'send_view' hash=pod.hash %}">{{ pod.name|default:"(unnamed)" }}</a></h2>
+            <span class="pod-status pod-status-{{ pod.status }}">{{ pod.get_status_display }}</span>
+        </div>
+        <div class="pod-meta">
+            <span>Created {{ pod.created_at|date:"Y-m-d H:i" }}</span>
+            {% if pod.recipient %}
+                <span class="pod-tag">To: {{ pod.recipient.username }}</span>
+            {% else %}
+                <span class="pod-tag">Anonymous</span>
+            {% endif %}
+            {% if pod.deadline %}
+                <span>Expires <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time></span>
+            {% endif %}
+            {% if pod.self_destruct %}
+                <span class="pod-tag">Self-destruct</span>
+            {% endif %}
+        </div>
+      </div>
+      <div>
+        <div class="pod-actions">
+            <a href="{% url 'send_view' hash=pod.hash %}" class="button secondary">View</a>
+            {% if not pod.recipient %}
+            <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'send_view' hash=pod.hash %}" class="button secondary">Copy URL</button>
+            {% endif %}
+            <form method="post" action="{% url 'send_delete' hash=pod.hash %}" class="inline" data-confirm="Delete send pod &quot;{{ pod.name|default:pod.hash }}&quot;?">
+                {% csrf_token %}
+                <button type="submit" class="button danger">Delete</button>
+            </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if receive_pods and not send_pods %}
+<p><a href="{% url 'send_create' %}" class="button secondary">Send a Secret</a></p>
 {% endif %}
 
 {% endblock %}

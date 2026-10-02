@@ -8,9 +8,9 @@ from django.utils import timezone
 
 @pytest.fixture
 def pod_cls():
-    from privipod.server import Pod
+    from privipod.server import ReceivePod
 
-    return Pod
+    return ReceivePod
 
 
 class TestPodIsExpired:
@@ -40,7 +40,7 @@ class TestPodCanSend:
         assert pod.can_send() is True
 
     def test_sent_returns_false(self, pod_cls):
-        pod = pod_cls(status=pod_cls.Status.SENT, deadline=None)
+        pod = pod_cls(status=pod_cls.Status.RECEIVED, deadline=None)
         assert pod.can_send() is False
 
     def test_expired_returns_false(self, pod_cls):

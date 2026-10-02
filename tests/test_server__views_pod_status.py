@@ -1,25 +1,26 @@
 """Tests for the pod status JSON polling endpoint."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
-from privipod.server import Pod
+from privipod.server import ReceivePod
 
 VALID_ENCRYPTED = json.dumps(
     {"encryptedKey": "abc123", "encryptedData": "xyz456", "iv": "ivval"}
 )
-VALID_ENCRYPTED_FN = json.dumps({"encryptedKey": "k", "encryptedData": "fn", "iv": "i"})
 
 
 @pytest.mark.django_db
 class TestPodStatusView:
-    def test_anonymous_returns_403(self, client, make_pod):
+    def test_anonymous_redirects_to_login(self, client, make_pod):
         pod = make_pod()
         resp = client.get(reverse("pod_status", kwargs={"hash": pod.hash}))
-        assert resp.status_code == 403
-        assert json.loads(resp.content)["status"] == "auth_required"
+        assert resp.status_code == 302
+        assert "/login" in resp["Location"]
 
     def test_non_owner_returns_404(self, client, other_user, make_pod):
         pod = make_pod(hash="status-not-mine")
@@ -33,42 +34,38 @@ class TestPodStatusView:
         assert resp.status_code == 200
         assert json.loads(resp.content)["status"] == "pending"
 
-    def test_sent_pod_returns_secret(self, auth_client, make_pod):
+    def test_received_pod_returns_received_without_secret(self, auth_client, make_pod):
         pod = make_pod(
-            hash="status-sent",
-            status=Pod.Status.SENT,
+            hash="status-received",
+            status=ReceivePod.Status.RECEIVED,
             encrypted_secret=VALID_ENCRYPTED.encode(),
-            secret_type=Pod.SecretType.TEXT,
+            secret_type=ReceivePod.SecretType.TEXT,
         )
         resp = auth_client.get(reverse("pod_status", kwargs={"hash": pod.hash}))
         assert resp.status_code == 200
-        data = json.loads(resp.content)
-        assert data["status"] == "sent"
-        assert "encrypted_secret" in data
-        assert data["secret_type"] == "text"
+        assert json.loads(resp.content) == {"status": "received"}
 
-    def test_sent_pod_with_filename_includes_filename(self, auth_client, make_pod):
-        pod = make_pod(
-            hash="status-sent-file",
-            status=Pod.Status.SENT,
-            encrypted_secret=VALID_ENCRYPTED.encode(),
-            encrypted_filename=VALID_ENCRYPTED_FN.encode(),
-            secret_type=Pod.SecretType.FILE,
-        )
-        resp = auth_client.get(reverse("pod_status", kwargs={"hash": pod.hash}))
-        data = json.loads(resp.content)
-        assert "encrypted_filename" in data
-
-    def test_self_destruct_sent_pod_returns_pending(self, auth_client, make_pod):
+    def test_self_destruct_received_pod_returns_received(self, auth_client, make_pod):
         pod = make_pod(
             hash="status-self-destruct",
-            status=Pod.Status.SENT,
+            status=ReceivePod.Status.RECEIVED,
             encrypted_secret=VALID_ENCRYPTED.encode(),
             self_destruct=True,
         )
         resp = auth_client.get(reverse("pod_status", kwargs={"hash": pod.hash}))
-        assert resp.status_code == 200
-        assert json.loads(resp.content)["status"] == "pending"
+        assert json.loads(resp.content) == {"status": "received"}
+
+    def test_expired_pod_is_destroyed(self, auth_client, make_pod):
+        pod = make_pod(
+            hash="status-expired",
+            status=ReceivePod.Status.RECEIVED,
+            encrypted_secret=VALID_ENCRYPTED.encode(),
+            deadline=timezone.now() - timedelta(hours=1),
+        )
+        resp = auth_client.get(reverse("pod_status", kwargs={"hash": pod.hash}))
+        assert json.loads(resp.content) == {"status": "destroyed"}
+        pod.refresh_from_db()
+        assert pod.encrypted_secret is None
 
     def test_nonexistent_pod_returns_404(self, auth_client):
         resp = auth_client.get(

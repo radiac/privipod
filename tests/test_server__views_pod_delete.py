@@ -3,16 +3,15 @@
 import pytest
 from django.urls import reverse
 
-from privipod.server import Pod
+from privipod.server import ReceivePod
 
 
 @pytest.mark.django_db
 class TestPodDeleteView:
-    def test_get_redirects_to_pod_view(self, auth_client, make_pod):
+    def test_get_returns_405(self, auth_client, make_pod):
         pod = make_pod()
         resp = auth_client.get(reverse("pod_delete", kwargs={"hash": pod.hash}))
-        assert resp.status_code == 302
-        assert pod.hash in resp["Location"]
+        assert resp.status_code == 405
 
     def test_anonymous_post_redirects_to_login(self, client, make_pod):
         pod = make_pod()
@@ -25,7 +24,7 @@ class TestPodDeleteView:
         pod_hash = pod.hash
         resp = auth_client.post(reverse("pod_delete", kwargs={"hash": pod_hash}))
         assert resp.status_code == 302
-        assert not Pod.objects.filter(hash=pod_hash).exists()
+        assert not ReceivePod.objects.filter(hash=pod_hash).exists()
 
     def test_owner_post_redirects_to_dashboard(self, auth_client, make_pod):
         pod = make_pod()
@@ -37,7 +36,7 @@ class TestPodDeleteView:
         client.force_login(other_user)
         resp = client.post(reverse("pod_delete", kwargs={"hash": pod.hash}))
         assert resp.status_code == 302
-        assert Pod.objects.filter(hash="not-mine").exists()
+        assert ReceivePod.objects.filter(hash="not-mine").exists()
 
     def test_nonexistent_pod_redirects_to_dashboard(self, auth_client):
         resp = auth_client.post(

@@ -3,7 +3,14 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'site.css' %}">
-  <script src="{% static 'site.js' %}"></script>
+  {# In dependency order - later files use classes from earlier ones #}
+  <script defer src="{% static 'js/crypto.js' %}"></script>
+  <script defer src="{% static 'js/ui.js' %}"></script>
+  <script defer src="{% static 'js/keys.js' %}"></script>
+  <script defer src="{% static 'js/account.js' %}"></script>
+  <script defer src="{% static 'js/receive.js' %}"></script>
+  <script defer src="{% static 'js/send.js' %}"></script>
+  <script defer src="{% static 'js/site.js' %}"></script>
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">

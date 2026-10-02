@@ -1,0 +1,94 @@
+{% extends "app.html" %}
+
+{% block body_class %}{{ block.super }} page-manage-keys{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<script id="pp-conf" type="application/json">{
+    "allowServerKeys": {{ allow_server_keys|yesno:"true,false" }},
+    "hasIdentityKey": {{ has_identity_key|yesno:"true,false" }},
+    "hasServerPrivateKey": {{ has_server_private_key|yesno:"true,false" }},
+    "pendingRecipientCount": {{ pending_recipient_count }}
+}</script>
+{% endblock %}
+
+{% block content %}
+
+{% if not has_identity_key %}
+<div class="message warning" id="identity-key-banner">
+    <strong>No identity key set up yet.</strong> Generate one to allow other users to send you secrets directly.
+    <p id="identity-key-generating">Generating your key...</p>
+</div>
+{% else %}
+
+<section>
+    <h2>Your Identity Key</h2>
+    <p>Your identity key lets other users send you secrets directly. Your public key is on the server; your private key is needed to decrypt them.</p>
+
+    <table class="log-table">
+        <thead><tr><th>Location</th><th>Private key status</th><th></th></tr></thead>
+        <tbody>
+            <tr>
+              <td>This browser</td>
+              <td id="identity-browser-status">Checking...</td>
+              <td id="identity-browser-key-actions"></td>
+            </tr>
+            <tr>
+              <td>Server</td>
+              <td>{{ has_server_private_key|yesno:"✓ Stored,✗ Not stored" }}</td>
+              <td id="identity-server-key-actions" class="key-actions"></td>
+            </tr>
+        </tbody>
+    </table>
+
+
+    <details class="key-danger-zone">
+        <summary>Danger zone</summary>
+        <div class="key-actions">
+            {% if pending_recipient_count %}
+            <p class="message warning">
+                <strong>{{ pending_recipient_count }} pending secret{{ pending_recipient_count|pluralize }} sent to you</strong>
+                will become unreadable if you regenerate your key.
+            </p>
+            {% endif %}
+            <button id="regenerateIdentityKeyBtn" class="button danger">Regenerate identity key</button>
+            <small>Generates a new keypair, replacing your current identity key on the server. Any secrets sent to you but not yet read will be permanently lost.</small>
+        </div>
+    </details>
+</section>
+
+{% endif %}
+
+<section>
+    <h2>Receive Pod Keys</h2>
+    <p>Each receive pod has its own keypair. The private key is needed to decrypt secrets sent to you.</p>
+
+    {% if pods %}
+    <table id="pod-keys-table" class="log-table">
+        <thead>
+            <tr>
+                <th>Pod</th>
+                <th>In browser</th>
+                <th>On server</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pod in pods %}
+            <tr data-pod-hash="{{ pod.hash }}" data-has-server-key="{{ pod.encrypted_private_key|yesno:'true,false' }}">
+                <td><a href="{% url 'pod_view' hash=pod.hash %}">{{ pod.name|default:"(unnamed)" }}</a></td>
+                <td class="browser-key-status">-</td>
+                <td class="server-key-status">{{ pod.encrypted_private_key|yesno:"✓,✗" }}</td>
+                <td class="pod-key-actions"></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="message info">You have no receive pods yet. <a href="{% url 'pod_create' %}">Create one</a> to start receiving secrets.</p>
+    {% endif %}
+</section>
+
+<p><a href="{% url 'dashboard' %}" class="button secondary">Back to Dashboard</a></p>
+
+{% endblock %}

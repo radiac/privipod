@@ -31,6 +31,20 @@ def pytest_configure(config):
 
     import privipod.server  # noqa: F401 - triggers Django setup via nanodjango
 
+    # Serve static files by their plain names. The production manifest storage needs
+    # collectstatic to have run first, and caches whichever manifest it finds on first
+    # use - the e2e servers regenerate it mid-session.
+    from django.conf import settings
+
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
+    # Unit tests don't serve static files; stops WhiteNoise warning it isn't collected
+    settings.STATIC_ROOT = None
+
 
 @pytest.fixture
 def user(db):
@@ -55,12 +69,36 @@ def auth_client(client, user):
 @pytest.fixture
 def make_pod(db, user):
     """Factory fixture: call make_pod(**kwargs) to create a Pod."""
-    from privipod.server import Pod
+    from privipod.server import ReceivePod
 
     def _make(owner=None, **kwargs):
         kwargs.setdefault("name", "Test Pod")
         kwargs.setdefault("hash", "testhash-abc-123")
         kwargs.setdefault("public_key", '{"kty":"RSA","n":"test","e":"AQAB"}')
-        return Pod.objects.create(owner=owner or user, **kwargs)
+        return ReceivePod.objects.create(owner=owner or user, **kwargs)
+
+    return _make
+
+
+@pytest.fixture
+def third_user(db):
+    from django.contrib.auth.models import User
+
+    return User.objects.create_user(username="thirduser", password="thirdpass")
+
+
+@pytest.fixture
+def make_send_pod(db, user):
+    """Factory fixture: call make_send_pod(**kwargs) to create a SendPod."""
+    from privipod.server import SendPod
+
+    VALID_ENCRYPTED = '{"encryptedKey":"abc","encryptedData":"xyz","iv":"iv1"}'
+
+    def _make(owner=None, **kwargs):
+        kwargs.setdefault("name", "Test Send Pod")
+        kwargs.setdefault("hash", "send-testhash-123")
+        kwargs.setdefault("encrypted_secret", VALID_ENCRYPTED.encode())
+        kwargs.setdefault("secret_type", "text")
+        return SendPod.objects.create(owner=owner or user, **kwargs)
 
     return _make

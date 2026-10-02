@@ -21,11 +21,11 @@ class TestDashboardView:
 
         resp = auth_client.get(reverse("dashboard"))
         assert resp.status_code == 200
-        pods = list(resp.context["pods"])
+        pods = list(resp.context["receive_pods"])
         assert my_pod in pods
         assert all(p.owner == user for p in pods)
 
     def test_empty_dashboard_when_no_pods(self, auth_client):
         resp = auth_client.get(reverse("dashboard"))
         assert resp.status_code == 200
-        assert list(resp.context["pods"]) == []
+        assert list(resp.context["receive_pods"]) == []

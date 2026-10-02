@@ -1,0 +1,179 @@
+{% extends "app.html" %}
+
+{% block body_class %}{{ block.super }} page-send-view{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<script id="pp-conf" type="application/json">{
+    "podHash": "{{ pod.hash }}",
+    "isOwner": {{ is_owner|yesno:"true,false" }},
+    "isPending": {{ is_pending|yesno:"true,false" }},
+    "isAnon": {{ is_anon|yesno:"true,false" }},
+    "isRecipient": {{ is_recipient|yesno:"true,false" }},
+    "hasServerKey": {{ has_server_key|yesno:"true,false" }},
+    "selfDestruct": {{ pod.self_destruct|yesno:"true,false" }},
+    "secretType": "{{ pod.secret_type }}"
+}</script>
+{% endblock %}
+
+{% block content %}
+
+{% if is_owner %}
+    <p>
+        Sent by you
+        {% if pod.recipient %} to <strong>{{ pod.recipient.username }}</strong>{% else %} (anonymous recipient){% endif %}
+    </p>
+
+    {% if pod.deadline %}
+        <div class="message warning">
+            Expires <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time>
+        </div>
+    {% endif %}
+    {% if pod.self_destruct %}
+        <div class="message warning">This pod is set to self-destruct after the recipient decrypts it.</div>
+    {% endif %}
+
+    {% if pod.status == "pending" %}
+        <div class="message info">
+            <strong>Waiting to be decrypted</strong>
+        </div>
+        {% if is_anon %}
+        <p>Share this URL with the recipient, and send their access code or key file separately:</p>
+        <div class="pod-url">{{ request.scheme }}://{{ request.get_host }}{% url 'send_view' hash=pod.hash %}</div>
+        {% endif %}
+    {% elif pod.status == "read" %}
+        <div class="message success">The recipient has decrypted the secret.</div>
+    {% elif pod.status == "locked" %}
+        <div class="message error">
+            Too many failed access attempts - the pod is locked.
+        </div>
+    {% elif pod.status == "destroyed" %}
+        <div class="message warning">This pod has been destroyed and its secret is gone.</div>
+    {% endif %}
+
+    <div class="buttons">
+        {% if pod.status == "pending" and is_anon %}
+        <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'send_view' hash=pod.hash %}">Copy URL</button>
+        {% elif pod.status == "locked" %}
+        <form method="post" action="{% url 'send_unlock' hash=pod.hash %}">
+            {% csrf_token %}
+            <button type="submit" class="button">Unlock Pod</button>
+        </form>
+        {% endif %}
+
+        <form class="inline" method="post" action="{% url 'send_delete' hash=pod.hash %}" data-confirm="Delete this send pod?">
+            {% csrf_token %}
+            <button type="submit" class="button danger">Delete Pod</button>
+        </form>
+    </div>
+
+    {% if pod.status == "pending" and is_anon and allow_server_keys and not has_server_key %}
+    <div id="storeKeySection">
+        <p><strong>Store key on server</strong> - let the recipient unlock it with an access code instead of the key file. <small>Upload the key file you downloaded when creating this pod. Weakens security if the server database is compromised.</small></p>
+        <div id="storeKeyForm" class="key-action-form">
+            <input type="file" id="storeKeyFile" accept=".json">
+            <input type="password" id="storeKeyCode" autocomplete="new-password" placeholder="Access code">
+            <button id="storeKeyBtn" class="button secondary">Store Key on Server</button>
+        </div>
+        <p id="storeKeySuccess" hidden class="message success">Key stored on server.</p>
+    </div>
+    {% endif %}
+
+    {% include "_pod_logs.html" %}
+
+{% elif pod.status == "locked" %}
+    <div class="message error">
+        <strong>Pod locked</strong> - too many failed access attempts. Ask the sender to unlock it before trying again.
+    </div>
+
+{% elif pod.status == "destroyed" %}
+    <div class="message warning">This pod has been destroyed and its secret is gone.</div>
+
+{% elif pod.can_access %}
+
+    {# Renders nothing visible, but ensures Django sets the csrftoken cookie for #}
+    {# this anonymous recipient so the fetch() calls below can send it back. #}
+    {% csrf_token %}
+
+    <noscript>
+        <div class="message error">JavaScript is required to decrypt this secret.</div>
+    </noscript>
+
+    {% if pod.self_destruct %}
+        <div class="message warning">
+            This secret will self-destruct after you decrypt it. Save it before closing this page.
+        </div>
+    {% endif %}
+    {% if pod.deadline %}
+        <div class="message warning">
+            Available until <time data-deadline="{{ pod.deadline|date:'c' }}">{{ pod.deadline|date:"Y-m-d H:i" }}</time>
+        </div>
+    {% endif %}
+
+    <div class="message info">
+        This secret was encrypted in the sender's browser. Only you can decrypt it.
+    </div>
+
+    {# Anonymous recipient with server-stored key #}
+    {% if is_anon and has_server_key %}
+    <div id="accessCodeSection">
+        <p>
+            <label for="accessCode">Access code:</label>
+            <input type="password" id="accessCode" placeholder="Enter your access code">
+        </p>
+        <p><button id="accessCodeSubmit" class="button">Unlock Secret</button></p>
+        <p id="accessCodeError" hidden class="message error"></p>
+    </div>
+    {% endif %}
+
+    {# Anonymous recipient with no server key - import private key #}
+    {% if is_anon and not has_server_key %}
+    <div id="keyImportSection">
+        <p>Enter the private key file the sender sent you:</p>
+        <p>
+            <label for="importKeyFile">Key file:</label>
+            <input type="file" id="importKeyFile" accept=".json">
+        </p>
+    </div>
+    {% endif %}
+
+    {# Authenticated recipient - retrieve identity key #}
+    {% if is_recipient %}
+    <div id="identityKeySection">
+        <p id="identityKeyDecrypting">Retrieving your identity key…</p>
+        <div id="identityKeyCodePrompt" hidden>
+            <p>
+                <label for="identityAccessCode">Access code for your identity key:</label>
+                <input type="password" id="identityAccessCode" placeholder="Enter your access code">
+            </p>
+            <p><button id="identityAccessCodeSubmit" class="button">Unlock</button></p>
+            <p id="identityKeyError" hidden class="message error"></p>
+        </div>
+        <div id="identityKeyImportPrompt" hidden>
+            <p>Your identity key was not found. Import it:</p>
+            <p>
+                <label for="importIdentityKeyFile">Identity key file:</label>
+                <input type="file" id="importIdentityKeyFile" accept=".json">
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Encrypted data carriers (always present for recipients on accessible pods) #}
+    {% if encrypted_secret_json %}
+        {{ encrypted_secret_json|json_script:"encrypted-secret-data" }}
+    {% endif %}
+    {% if encrypted_filename_json %}
+        {{ encrypted_filename_json|json_script:"encrypted-filename-data" }}
+    {% endif %}
+    {% if read_challenge_json %}
+        {{ read_challenge_json|json_script:"read-challenge-data" }}
+    {% endif %}
+
+    <div id="secretDisplay" class="secret-display" hidden></div>
+
+{% else %}
+    <div class="message error">This pod has expired or been destroyed.</div>
+{% endif %}
+
+{% endblock %}

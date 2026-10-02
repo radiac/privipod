@@ -1,25 +1,14 @@
 # Project must be configured in privipod.config before importing this module
 import asyncio
-import json
 import logging
 import os
-import secrets
 
-from django import forms
-from django.contrib import messages
+from asgiref.sync import sync_to_async
 from django.core.management.utils import get_random_secret_key
 from django.db import models
-from django.http import JsonResponse
-from django.shortcuts import redirect
-from django.urls import reverse, reverse_lazy
 from django.utils import timezone as django_timezone
 from django_style import Nav
-from nanodjango import Django, defer
-
-with defer:
-    from django.contrib.auth.decorators import login_required
-    from django.contrib.auth.views import LoginView, LogoutView
-    from django.views.decorators.http import require_POST
+from nanodjango import Django
 
 from . import config
 
@@ -74,15 +63,111 @@ app = Django(
 )
 
 
+def context_site(request) -> dict:
+    if request.user.is_authenticated:
+        nav = [
+            Nav("Your Pods", "dashboard"),
+            Nav("Receive Secret", "pod_create"),
+            Nav("Send Secret", "send_create"),
+            Nav("Manage Keys", "manage_keys"),
+            Nav("Logout", "logout"),
+        ]
+    else:
+        nav = [
+            Nav("Login", "login"),
+        ]
+    return {
+        "site_title": "Privipod",
+        "site_nav": nav,
+    }
+
+
+class CSPMiddleware:
+    """
+    Content-Security-Policy header
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'"
+        )
+        return response
+
+
+class BasePod(models.Model):
+    """
+    Common pod functionality
+
+    * Expiry/destroy
+    """
+
+    DESTROY_FIELDS: tuple = ()
+
+    class Meta:
+        abstract = True
+
+    def is_expired(self):
+        if self.deadline is None:
+            return False
+        return django_timezone.now() > self.deadline
+
+    def destroy(self, status=None):
+        if status is None:
+            status = self.Status.DESTROYED
+        for field in self.DESTROY_FIELDS:
+            setattr(self, field, None)
+        self.status = status
+        self.save()
+
+    def expire(self):
+        """
+        Destroy and log the pod if it is past its deadline
+        """
+        if not self.is_expired() or self.status == self.Status.DESTROYED:
+            return False
+
+        # Prep destroyed values
+        destroy_values = {field: None for field in self.DESTROY_FIELDS}
+
+        # Ensure we only destroy once in the event of a race condition
+        updated = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .exclude(status=self.Status.DESTROYED)
+            .update(status=self.Status.DESTROYED, **destroy_values)
+        )
+
+        # Clear in memory
+        for field, value in destroy_values.items():
+            setattr(self, field, value)
+        self.status = self.Status.DESTROYED
+
+        if not updated:
+            return False
+        self.logs.create(event=self.logs.model.Event.DESTROYED, detail="expired")
+        return True
+
+
 @app.admin
-class Pod(models.Model):
+class ReceivePod(BasePod):
     class Status(models.TextChoices):
         PENDING = "pending", "Waiting for secret"
-        SENT = "sent", "Secret received"
+        RECEIVED = "received", "Secret received"
+        DESTROYED = "destroyed", "Destroyed"
 
     class SecretType(models.TextChoices):
         TEXT = "text", "Text"
         FILE = "file", "File"
+
+    DESTROY_FIELDS = ("encrypted_secret", "encrypted_filename", "encrypted_private_key")
 
     owner = models.ForeignKey("auth.User", on_delete=models.CASCADE)
     name = models.CharField(
@@ -104,324 +189,196 @@ class Pod(models.Model):
     encrypted_filename = models.BinaryField(null=True, blank=True)
     require_sender_auth = models.BooleanField(default=False)
     self_destruct = models.BooleanField(default=False)
+    encrypted_private_key = models.BinaryField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
         app_label = "privipod"
 
     def __str__(self):
-        return f"Pod {self.name} ({self.status})"
-
-    def is_expired(self):
-        """Check if pod has passed its deadline"""
-        if self.deadline is None:
-            return False
-        return django_timezone.now() > self.deadline
+        return f"ReceivePod {self.name} ({self.status})"
 
     def can_send(self):
-        """Check if secret can be sent to this pod"""
         return self.status == self.Status.PENDING and not self.is_expired()
 
 
-# Forms
-class PodCreateForm(forms.ModelForm):
+@app.admin
+class UserProfile(models.Model):
+    user = models.OneToOneField(
+        "auth.User", on_delete=models.CASCADE, related_name="privipod_profile"
+    )
+    identity_public_key = models.TextField(blank=True)
+    encrypted_identity_private_key = models.BinaryField(null=True, blank=True)
+    identity_key_salt = models.BinaryField(null=True, blank=True)
+    # True once the user has dismissed the dashboard identity-key banner
+    onboarding = models.BooleanField(default=False)
+
     class Meta:
-        model = Pod
-        fields = [
-            "name",
-            "deadline",
-            "require_sender_auth",
-            "self_destruct",
-            "public_key",
-        ]
-        widgets = {
-            "public_key": forms.HiddenInput(),
-            "deadline": forms.DateTimeInput(attrs={"type": "datetime-local"}),
-        }
-        help_texts = {
-            "deadline": "Optional: When this pod should expire",
-            "require_sender_auth": "The sender needs to be logged in",
-            "self_destruct": "Delete pod immediately after secret is retrieved",
-        }
+        app_label = "privipod"
+
+    def __str__(self):
+        return f"UserProfile({self.user.username})"
 
 
-class SendSecretForm(forms.Form):
-    encrypted_data = forms.CharField(widget=forms.HiddenInput(), required=True)
-    secret_type = forms.CharField(widget=forms.HiddenInput(), required=True)
-    encrypted_filename = forms.CharField(required=False, widget=forms.HiddenInput())
+@app.admin
+class SendPod(BasePod):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting to be decrypted"
+        READ = "read", "Secret decrypted"
+        LOCKED = "locked", "Locked - too many attempts"
+        DESTROYED = "destroyed", "Destroyed"
 
+    class SecretType(models.TextChoices):
+        TEXT = "text", "Text"
+        FILE = "file", "File"
 
-# Register auth URLs
-app.path("login/", name="login")(LoginView.as_view(extra_context={"title": "Login"}))
-app.path("logout/", name="logout")(LogoutView.as_view(next_page=reverse_lazy("login")))
+    MAX_ATTEMPTS = 5
 
+    owner = models.ForeignKey(
+        "auth.User", on_delete=models.CASCADE, related_name="sent_pods"
+    )
+    recipient = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="received_send_pods",
+    )
+    name = models.CharField(max_length=255, blank=True)
+    hash = models.CharField(max_length=64, unique=True, db_index=True)
+    deadline = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    encrypted_secret = models.BinaryField(null=True, blank=True)
+    secret_type = models.CharField(
+        max_length=10, choices=SecretType.choices, default=SecretType.TEXT, blank=True
+    )
+    encrypted_filename = models.BinaryField(null=True, blank=True)
+    self_destruct = models.BooleanField(default=False)
+    # Anonymous pods only:
+    encrypted_private_key = models.BinaryField(null=True, blank=True)
+    verification_token = models.BinaryField(null=True, blank=True)
+    read_challenge = models.BinaryField(null=True, blank=True)
+    attempt_count = models.IntegerField(default=0)
 
-def context_site(request) -> dict:
-    if request.user.is_authenticated:
-        nav = [
-            Nav("Your Pods", "dashboard"),
-            Nav("Create Pod", "pod_create"),
-            Nav("Logout", "logout"),
-        ]
-
-    else:
-        nav = [
-            Nav("Login", "login"),
-        ]
-
-    return {"site_title": "Privipod", "site_nav": nav}
-
-
-class CSPMiddleware:
-    """Add Content-Security-Policy header (not provided by Django's built-in middleware)."""
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        response = self.get_response(request)
-        response["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self'; "
-            "img-src 'self' data:; "
-            "connect-src 'self'"
-        )
-        return response
-
-
-# Views
-@app.path("/", name="dashboard")
-@login_required
-def dashboard(request):
-    pods = Pod.objects.filter(owner=request.user)
-    return app.render(request, "dashboard.html", {"title": "Your Pods", "pods": pods})
-
-
-@app.path("/pod/create/", name="pod_create")
-@login_required
-def pod_create_view(request):
-    if request.method == "POST":
-        form = PodCreateForm(request.POST)
-        if form.is_valid():
-            pod = form.save(commit=False)
-            pod.owner = request.user
-            while True:
-                pod.hash = secrets.token_urlsafe(32)
-                if not Pod.objects.filter(hash=pod.hash).exists():
-                    break
-            pod.save()
-            return redirect(reverse("pod_view", kwargs={"hash": pod.hash}))
-        return app.render(
-            request,
-            "pod_create.html",
-            {"title": "Create a Pod", "form": form},
-        )
-
-    return app.render(
-        request,
-        "pod_create.html",
-        {"title": "Create a Pod", "form": PodCreateForm()},
+    DESTROY_FIELDS = (
+        "encrypted_secret",
+        "encrypted_filename",
+        "encrypted_private_key",
+        "verification_token",
+        "read_challenge",
     )
 
+    class Meta:
+        ordering = ["-created_at"]
+        app_label = "privipod"
 
-@app.path("/pod/<str:hash>/", name="pod_view")
-def pod_view(request, hash):
-    try:
-        pod = Pod.objects.get(hash=hash)
-    except Pod.DoesNotExist:
-        if not request.user.is_authenticated:
-            return redirect(
-                f"{reverse('login')}?next={reverse('pod_view', kwargs={'hash': hash})}"
-            )
-        return app.render(request, "pod_not_found.html", {"title": "Pod Not Found"})
+    def __str__(self):
+        return f"SendPod {self.name} ({self.status})"
 
-    # Check if expired
-    if pod.is_expired():
-        return app.render(
-            request,
-            "pod_view.html",
-            {
-                "pod": pod,
-                "is_owner": False,
-            },
+    def can_access(self):
+        return (
+            self.status in (self.Status.PENDING, self.Status.READ)
+            and not self.is_expired()
         )
 
-    is_owner = request.user.is_authenticated and pod.owner == request.user
+    def lock(self):
+        # Prevent access but leave the secret so it can be unlocked
+        self.status = self.Status.LOCKED
+        self.save(update_fields=["status"])
 
-    # Check sender authentication requirement
-    if pod.require_sender_auth and not is_owner and not request.user.is_authenticated:
-        return redirect(
-            f"{reverse('login')}?next={reverse('pod_view', kwargs={'hash': hash})}"
+    def unlock(self):
+        self.status = self.Status.PENDING
+        self.attempt_count = 0
+        self.save(update_fields=["status", "attempt_count"])
+
+
+@app.admin
+class ReceiveLog(models.Model):
+    class Event(models.TextChoices):
+        ACCESSED = "accessed", "Secret accessed"
+        DECRYPTED = "decrypted", "Secret decrypted"
+        DESTROYED = "destroyed", "Destroyed"
+
+    pod = models.ForeignKey(ReceivePod, on_delete=models.CASCADE, related_name="logs")
+    user = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="receive_logs",
+    )
+    timestamp = models.DateTimeField(auto_now_add=True)
+    event = models.CharField(max_length=20, choices=Event.choices)
+    detail = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        app_label = "privipod"
+
+    def __str__(self):
+        return f"ReceiveLog {self.event} @ {self.timestamp}"
+
+
+@app.admin
+class SendLog(models.Model):
+    # See ReceiveLog for ACCESSED vs DECRYPTED
+    class Event(models.TextChoices):
+        ATTEMPT_FAILED = "attempt_failed", "Failed access attempt"
+        ACCESSED = "accessed", "Secret accessed"
+        DECRYPTED = "decrypted", "Secret decrypted"
+        LOCKED = "locked", "Pod locked"
+        DESTROYED = "destroyed", "Destroyed"
+
+    pod = models.ForeignKey(SendPod, on_delete=models.CASCADE, related_name="logs")
+    user = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="send_logs",
+    )
+    timestamp = models.DateTimeField(auto_now_add=True)
+    event = models.CharField(max_length=20, choices=Event.choices)
+    detail = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        app_label = "privipod"
+
+    def __str__(self):
+        return f"SendLog {self.event} @ {self.timestamp}"
+
+
+async def _cleanup_expired_pods_once():
+    """Single sweep: destroy expired pods (wipes secrets, preserves records)."""
+    now = django_timezone.now()
+
+    for pod_model, label in ((ReceivePod, "receive"), (SendPod, "send")):
+        # Only load what expire() needs - skip the encrypted payloads
+        expired = (
+            pod_model.objects.filter(deadline__lt=now)
+            .exclude(status=pod_model.Status.DESTROYED)
+            .only("pk", "deadline", "status")
         )
-
-    context = {
-        "title": f"Pod: {pod.name}",
-        "pod": pod,
-        "is_owner": is_owner,
-    }
-
-    # Check if owner wants to send to themselves
-    show_send_form = is_owner and "send" in request.GET and pod.can_send()
-
-    if is_owner and pod.status == Pod.Status.SENT:
-        try:
-            context["encrypted_secret_json"] = json.loads(
-                pod.encrypted_secret.decode("utf-8")
-            )
-        except (ValueError, AttributeError):
-            messages.error(request, "Stored secret is corrupt and cannot be displayed.")
-            return app.render(request, "pod_view.html", context)
-        if pod.encrypted_filename:
-            try:
-                context["encrypted_filename_json"] = json.loads(
-                    pod.encrypted_filename.decode("utf-8")
-                )
-            except (ValueError, AttributeError):
-                pass  # filename is cosmetic; proceed without it
-
-    if (not is_owner or show_send_form) and pod.can_send():
-        try:
-            context["public_key_json"] = json.loads(pod.public_key)
-        except (ValueError, AttributeError):
-            messages.error(request, "Pod public key is corrupt.")
-            return redirect(reverse("dashboard"))
-        context["send_form"] = SendSecretForm()
-        context["show_send_form"] = show_send_form
-
-    if request.method == "POST" and (not is_owner or show_send_form) and pod.can_send():
-        send_form = SendSecretForm(request.POST)
-        if send_form.is_valid():
-            encrypted_data = send_form.cleaned_data["encrypted_data"]
-
-            # Check size
-            if len(encrypted_data) > MAX_SIZE_BYTES:
-                messages.error(
-                    request,
-                    f"Encrypted data exceeds maximum size of {MAX_SIZE_MB}MB",
-                )
-                return redirect(reverse("pod_view", kwargs={"hash": hash}))
-
-            # Validate JSON structure before storing
-            try:
-                json.loads(encrypted_data)
-            except ValueError:
-                messages.error(request, "Invalid encrypted data.")
-                return redirect(reverse("pod_view", kwargs={"hash": hash}))
-
-            enc_fn = send_form.cleaned_data.get("encrypted_filename")
-            if enc_fn:
-                try:
-                    json.loads(enc_fn)
-                except ValueError:
-                    messages.error(request, "Invalid encrypted filename.")
-                    return redirect(reverse("pod_view", kwargs={"hash": hash}))
-
-            # Store encrypted secret atomically; bail if another sender got there first
-            update_fields = {
-                "encrypted_secret": encrypted_data.encode("utf-8"),
-                "secret_type": send_form.cleaned_data["secret_type"],
-                "status": Pod.Status.SENT,
-            }
-            if enc_fn:
-                update_fields["encrypted_filename"] = enc_fn.encode("utf-8")
-            if not Pod.objects.filter(hash=hash, status=Pod.Status.PENDING).update(
-                **update_fields
-            ):
-                messages.error(request, "A secret has already been sent to this pod.")
-                return redirect(reverse("pod_view", kwargs={"hash": hash}))
-
-            return redirect(reverse("pod_view", kwargs={"hash": hash}))
-
-    return app.render(request, "pod_view.html", context)
-
-
-@app.path("/pod/<str:hash>/delete/", name="pod_delete")
-@login_required
-def pod_delete_view(request, hash):
-    if request.method != "POST":
-        return redirect(reverse("pod_view", kwargs={"hash": hash}))
-    try:
-        pod = Pod.objects.get(hash=hash, owner=request.user)
-    except Pod.DoesNotExist:
-        messages.error(request, "Pod not found.")
-        return redirect(reverse("dashboard"))
-    pod_name = pod.name or hash[:8]
-    pod.delete()
-    messages.success(request, f"Pod '{pod_name}' deleted.")
-    return redirect(reverse("dashboard"))
-
-
-@app.path("/pod/<str:hash>/confirm-read/", name="pod_confirm_read")
-@login_required
-@require_POST
-def pod_confirm_read_view(request, hash):
-    """Called by JS after successful client-side decrypt of a self-destruct pod."""
-    try:
-        pod = Pod.objects.get(
-            hash=hash,
-            owner=request.user,
-            self_destruct=True,
-            status=Pod.Status.SENT,
-        )
-    except Pod.DoesNotExist:
-        return JsonResponse({"error": "not found"}, status=404)
-    pod.delete()
-    return JsonResponse({"status": "ok"})
-
-
-@app.path("/health/", name="health")
-def health_view(request):
-    return JsonResponse({"status": "ok"})
-
-
-@app.path("/pod/<str:hash>/status/", name="pod_status")
-def pod_status_view(request, hash):
-    """JSON polling endpoint for the owner to detect when a secret has been sent."""
-    if not request.user.is_authenticated:
-        return JsonResponse({"status": "auth_required"}, status=403)
-    try:
-        pod = Pod.objects.get(hash=hash, owner=request.user)
-    except Pod.DoesNotExist:
-        return JsonResponse({"status": "not_found"}, status=404)
-
-    if pod.status != Pod.Status.SENT or pod.self_destruct:
-        return JsonResponse({"status": "pending"})
-
-    try:
-        encrypted_secret = json.loads(pod.encrypted_secret.decode("utf-8"))
-    except (ValueError, AttributeError):
-        return JsonResponse({"status": "error"}, status=500)
-
-    data = {
-        "status": "sent",
-        "encrypted_secret": encrypted_secret,
-        "secret_type": pod.secret_type,
-    }
-    if pod.encrypted_filename:
-        try:
-            data["encrypted_filename"] = json.loads(
-                pod.encrypted_filename.decode("utf-8")
-            )
-        except (ValueError, AttributeError):
-            pass
-    return JsonResponse(data)
-
-
-# Background cleanup task
-async def cleanup_expired_pods():
-    """Periodically delete expired pods"""
-    while True:
-        await asyncio.sleep(300)  # Run every 5 minutes
-
-        now = django_timezone.now()
-        # Use async ORM methods
-        count = await Pod.objects.filter(
-            deadline__isnull=False, deadline__lt=now
-        ).acount()
+        count = 0
+        async for pod in expired:
+            if await sync_to_async(pod.expire)():
+                count += 1
         if count > 0:
-            await Pod.objects.filter(deadline__isnull=False, deadline__lt=now).adelete()
-            logger.info("Deleted %d expired pod(s)", count)
+            logger.info("Destroyed %d expired %s pod(s)", count, label)
+
+
+async def cleanup_expired_pods():
+    """Periodically destroy expired pods (wipes secrets, preserves records)."""
+    while True:
+        await asyncio.sleep(300)
+        await _cleanup_expired_pods_once()
+
+
+from . import views  # noqa: E402,F401
 
 
 def main():
@@ -446,10 +403,13 @@ def main():
     logger.info("Max upload size: %dMB", MAX_SIZE_MB)
 
     if config.debug:
-        app.run(config.address or "0.0.0.0:8000", username=config.user, password=config.password)
+        app.run(
+            config.address or "0.0.0.0:8000",
+            username=config.user,
+            password=config.password,
+        )
         return
 
-    # Create event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 

@@ -21,34 +21,39 @@ Fork the project on GitHub, then clone your fork:
 Testing
 =======
 
-The test suite is Playwright end-to-end - it drives a real browser against a running
-Privipod instance. You need to start the server before running pytest.
+There are two test suites:
+
+* Unit tests in ``tests/``, which test the Django views and models directly.
+* End-to-end tests in ``tests/integration/``, which use Playwright to test functionality
+  with a browser.
+
+To run the tests:
 
 .. code-block:: bash
 
-    # Terminal 1 - start the server
-    uv run python -m privipod 0:8765 --user=testuser --pass=testpass
-
-    # Terminal 2 - install browsers (first time only), then run tests
+    # Install browsers (first time only)
     uv run playwright install chromium
+
+    # Run everything
     uv run pytest
 
-The default test server URL is ``http://localhost:8765``. Override it with environment
-variables if you want to test against a different instance:
+    # Run only the unit tests, or only the end-to-end tests
+    uv run pytest tests/ --ignore=tests/integration
+    uv run pytest tests/integration
+
+To see what the end-to-end tests are doing, run them in a visible browser, or keep a
+Playwright trace of failures to open with ``uv run playwright show-trace``:
 
 .. code-block:: bash
 
-    PRIVIPOD_URL=http://localhost:9000 \
-    PRIVIPOD_USER=admin \
-    PRIVIPOD_PASS=secret \
-    uv run pytest tests/ -v
+    uv run pytest tests/integration --headed --slowmo 500
+    uv run pytest tests/integration --tracing retain-on-failure
 
 
 Running with Docker
 -------------------
 
-To run the full test suite in an isolated container (no local server or browser
-install needed):
+To run the full test suite in an isolated container (no local browser install needed):
 
 .. code-block:: bash
 

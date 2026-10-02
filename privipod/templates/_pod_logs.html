@@ -1,0 +1,20 @@
+<h3>Access Log</h3>
+{% if logs %}
+<table>
+    <thead>
+        <tr><th>Time</th><th>Event</th><th>User</th><th>Detail</th></tr>
+    </thead>
+    <tbody>
+        {% for log in logs %}
+        <tr>
+            <td>{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+            <td>{{ log.get_event_display }}</td>
+            <td>{{ log.user.username|default:"-" }}</td>
+            <td>{{ log.detail }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+    <p>No access events yet.</p>
+{% endif %}

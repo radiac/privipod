@@ -8,3 +8,4 @@ hostnames: list[str] = []
 user: str | None = None
 password: str | None = None
 secret_key: str | None = None
+allow_server_keys: bool = True

@@ -1,9 +1,12 @@
 """Tests for the pod create view."""
 
+from datetime import timedelta
+
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
-from privipod.server import Pod
+from privipod.server import ReceivePod
 
 
 @pytest.mark.django_db
@@ -32,7 +35,7 @@ class TestPodCreateView:
             },
         )
         assert resp.status_code == 302
-        pod = Pod.objects.get(name="New Pod")
+        pod = ReceivePod.objects.get(name="New Pod")
         assert pod.owner == user
 
     def test_post_generates_unique_hash(self, auth_client):
@@ -50,7 +53,7 @@ class TestPodCreateView:
                 "public_key": '{"kty":"RSA","n":"abc","e":"AQAB"}',
             },
         )
-        hashes = list(Pod.objects.values_list("hash", flat=True))
+        hashes = list(ReceivePod.objects.values_list("hash", flat=True))
         assert len(hashes) == len(set(hashes))
 
     def test_post_redirects_to_pod_view(self, auth_client):
@@ -62,7 +65,7 @@ class TestPodCreateView:
             },
         )
         assert resp.status_code == 302
-        pod = Pod.objects.get(name="Redirect Pod")
+        pod = ReceivePod.objects.get(name="Redirect Pod")
         assert pod.hash in resp["Location"]
 
     def test_post_missing_public_key_shows_form_errors(self, auth_client):
@@ -81,5 +84,30 @@ class TestPodCreateView:
                 "public_key": '{"kty":"RSA","n":"abc","e":"AQAB"}',
             },
         )
-        pod = Pod.objects.get(name="Status Pod")
-        assert pod.status == Pod.Status.PENDING
+        pod = ReceivePod.objects.get(name="Status Pod")
+        assert pod.status == ReceivePod.Status.PENDING
+
+    def test_utc_deadline_is_accepted(self, auth_client):
+        deadline = (timezone.now() + timedelta(hours=1)).replace(microsecond=0)
+        auth_client.post(
+            reverse("pod_create"),
+            {
+                "name": "Deadline Pod",
+                "public_key": '{"kty":"RSA","n":"abc","e":"AQAB"}',
+                "deadline": deadline.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            },
+        )
+        assert ReceivePod.objects.get(name="Deadline Pod").deadline == deadline
+
+    def test_past_deadline_is_rejected(self, auth_client):
+        resp = auth_client.post(
+            reverse("pod_create"),
+            {
+                "name": "Past Pod",
+                "public_key": '{"kty":"RSA","n":"abc","e":"AQAB"}',
+                "deadline": (timezone.now() - timedelta(minutes=1)).isoformat(),
+            },
+        )
+        assert resp.status_code == 200
+        assert "deadline" in resp.context["form"].errors
+        assert not ReceivePod.objects.filter(name="Past Pod").exists()

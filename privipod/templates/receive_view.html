@@ -2,12 +2,18 @@
 
 {% block body_class %}{{ block.super }} page-pod-view{% endblock %}
 
-{% block content %}
+{% block extra_head %}
+{{ block.super }}
+<script id="pp-conf" type="application/json">{
+    "podHash": "{{ pod.hash }}",
+    "selfDestruct": {{ pod.self_destruct|yesno:"true,false" }},
+    "podUrl": "{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}",
+    "allowServerKeys": {{ allow_server_keys|yesno:"true,false" }},
+    "hasServerKey": {{ has_server_key|default:False|yesno:"true,false" }}
+}</script>
+{% endblock %}
 
-<div id="pp-data" hidden
-    data-pod-hash="{{ pod.hash }}"
-    data-self-destruct="{{ pod.self_destruct|yesno:'true,false' }}"
-    data-pod-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}"></div>
+{% block content %}
 
 <p>Created by {{ pod.owner }}</p>
 
@@ -27,27 +33,24 @@
 
             <p>Share this URL with the sender:</p>
             <div class="pod-url">{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}</div>
-            <p>
+            <div class="buttons">
                 <button data-copy-url="{{ request.scheme }}://{{ request.get_host }}{% url 'pod_view' hash=pod.hash %}">Copy URL</button>
                 <a href="?send" class="button secondary">Send to myself</a>
-                <button data-export-key="{{ pod.hash }}" class="button secondary">Download Key</button>
-            </p>
-            <p>
-                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" data-confirm="Delete this pod?">
+                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" class="inline" data-confirm="Delete this pod?">
                     {% csrf_token %}
                     <button type="submit" class="button danger">Delete Pod</button>
                 </form>
-            </p>
+            </div>
         </div>
         {% endif %}
 
-    {% elif pod.status == "sent" %}
-        <div id="pp-owner-sent">
+    {% elif pod.status == "received" %}
+        <div id="pp-owner-received">
             <div class="message success">Secret received</div>
 
             {% if pod.self_destruct %}
                 <div class="message warning">
-                    This message is set to self destruct, and will be gone when you close this page.
+                    This secret will be destroyed as soon as it is decrypted. Save it before closing this page.
                 </div>
             {% elif pod.deadline %}
                 <div class="message warning">
@@ -59,35 +62,80 @@
             {% if encrypted_filename_json %}{{ encrypted_filename_json|json_script:"encrypted-filename-data" }}{% endif %}
             <span id="pod-secret-type" data-type="{{ pod.secret_type }}" hidden></span>
 
-            <div id="secretDisplay" class="secret-display">
-                <p>Decrypting...</p>
+            <div id="secretDisplay">
+                <p>Decrypting…</p>
             </div>
 
             <div id="keyRecovery">
                 <div class="message warning">
-                    Private key not found in this browser. Import your key file to decrypt.
+                    Private key not found in this browser. Import your key file or retrieve it from the server.
                 </div>
+                {% if allow_server_keys %}
+                <div id="retrieveKeySection">
+                    <p>
+                        <label for="retrieveKeyCode">Access code (if you stored your key on the server):</label>
+                        <input type="password" id="retrieveKeyCode" placeholder="Enter your access code">
+                    </p>
+                    <p><button id="retrieveKeyBtn" class="button secondary">Load Key from Server</button></p>
+                    <p id="retrieveKeyError" hidden class="message error"></p>
+                </div>
+                <hr>
+                {% endif %}
                 <p>
-                    <label for="importKeyFile">Key file:</label>
+                    <label for="importKeyFile">Or import key file:</label>
                     <input type="file" id="importKeyFile" accept=".json">
                 </p>
             </div>
 
-            <div id="keyActions">
-                <p>
-                    <button data-export-key="{{ pod.hash }}" class="button secondary">Download Key</button>
-                </p>
-            </div>
-
-            {% if not pod.self_destruct %}
-            <p>
-                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" data-confirm="Delete this pod and its secret?">
+            {# Copy/download button is added by PrivipodUI.renderSecret() #}
+            <div class="buttons" id="secretActions">
+                {% if not pod.self_destruct %}
+                <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" class="inline" data-confirm="Delete this pod and its secret?">
                     {% csrf_token %}
                     <button type="submit" class="button danger">Delete Pod</button>
                 </form>
-            </p>
-            {% endif %}
+                {% endif %}
+            </div>
         </div>
+
+    {% elif pod.status == "destroyed" %}
+        <div class="message warning">This pod has been destroyed and its secret is gone.</div>
+        <p>
+            <form method="post" action="{% url 'pod_delete' hash=pod.hash %}" data-confirm="Delete this pod record?">
+                {% csrf_token %}
+                <button type="submit" class="button danger">Delete Record</button>
+            </form>
+        </p>
+    {% endif %}
+
+    {% if pod.status == "pending" and not show_send_form or pod.status == "received" and not pod.self_destruct %}
+        {# Shown by PrivipodReceive.initKeyManage() once the private key is in this browser #}
+        <details class="key-manage-zone" id="keyManage" hidden>
+            <summary>Manage pod key</summary>
+            <div>
+                <p>
+                    <button data-export-key="{{ pod.hash }}" class="button secondary">Download Key</button>
+                    create a backup so you can restore it later
+                </p>
+
+                {% if allow_server_keys %}
+                <div id="storeKeySection">
+                    <p><strong>Store key on server</strong> - decrypt from any device using an access code. <small>Weakens security if the server database is compromised.</small></p>
+                    <p id="storeKeySuccess" class="message success"{% if not has_server_key %} hidden{% endif %}>Key stored on server.</p>
+                    {% if not has_server_key %}
+                    <div id="storeKeyForm" class="key-action-form">
+                        <input type="password" id="storeKeyCode" autocomplete="new-password" placeholder="Access code">
+                        <button id="storeKeyBtn" class="button secondary">Store Key on Server</button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </details>
+    {% endif %}
+
+    {% if not show_send_form %}
+        {% include "_pod_logs.html" %}
     {% endif %}
 
 {% endif %}
@@ -101,7 +149,7 @@
 
         <div class="message info">
             Your data will be encrypted in your browser, and can only be read by the recipient.
-            {% if pod.self_destruct %}It will be deleted once they have seen it.{% endif %}
+            {% if pod.self_destruct %}It will be destroyed once they have decrypted it.{% endif %}
         </div>
 
         {% if pod.deadline %}
@@ -141,14 +189,14 @@
 
         {{ public_key_json|json_script:"public-key-data" }}
 
-    {% elif pod.status == "sent" %}
+    {% elif pod.status == "received" %}
         <div class="message success">
             <strong>Pod has been sent!</strong><br>
             The secret has been delivered.
         </div>
 
     {% else %}
-        <div class="message error">This pod has expired or never existed.</div>
+        <div class="message error">This pod has expired or been destroyed.</div>
     {% endif %}
 {% endif %}
 

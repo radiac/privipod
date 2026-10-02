@@ -47,6 +47,14 @@ from . import config
     help="Django secret key; generated if not set (see docs)",
 )
 @click.option(
+    "--no-server-keys",
+    "no_server_keys",
+    is_flag=True,
+    default=False,
+    envvar="PRIVIPOD_NO_SERVER_KEYS",
+    help="Disable server-side encrypted key storage",
+)
+@click.option(
     "--debug",
     is_flag=True,
     default=False,
@@ -60,7 +68,7 @@ from . import config
     envvar="PRIVIPOD_HOSTNAME",
     help="Allowed hostname (eg, example.com); enables deployed mode. Can be repeated.",
 )
-def cli(address, store, max_size, user, password, secret_key, debug, hostnames):
+def cli(address, store, max_size, user, password, secret_key, no_server_keys, debug, hostnames):
     """Privipod - Lightweight encrypted secret transfer service."""
     config.address = address
     config.hostnames = list(hostnames)
@@ -70,6 +78,7 @@ def cli(address, store, max_size, user, password, secret_key, debug, hostnames):
     config.user = user
     config.password = password
     config.secret_key = secret_key
+    config.allow_server_keys = not no_server_keys
 
     logging.basicConfig(
         level=logging.DEBUG if debug else logging.INFO,

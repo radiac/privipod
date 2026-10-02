@@ -9,29 +9,92 @@ All encryption and decryption happens in the browser using the
 `Web Crypto API <https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API>`_.
 
 Key generation uses RSA-OAEP 2048-bit key pairs. Encryption is hybrid: AES-256-GCM
-encrypts the data, and RSA-OAEP encrypts the AES key. The payload sent to the server
-is a Base64-encoded JSON object containing ``encryptedKey``, ``encryptedData``, and
-``iv``.
+encrypts the data, and RSA-OAEP encrypts the AES key.
 
 
 Key storage
 ===========
 
-Each pod gets its own private/public key pair.
+There are three types of keys:
 
-Private keys are stored in ``localStorage`` under ``privipod_key_<hash>``.
+Identity keys
+-------------
 
-They persist until:
+Each authenticated user creates a public/private identity key. The private key is stored
+in the ``localstorage`` of the user's browser, and the public key is stored on the
+server.
 
-- The pod is set to self-destruct (the key is removed after the owner decrypts the
-  secret); or
-- You clear your browser storage manually; or
-- The key expires and you visit the dashboard for it to be pruned.
+Users can either download their private key, or opt to store an encrypted copy on the
+server (see :ref:`server-stored-keys` below).
 
-.. note::
+Identity keys are used when one user creates a send pod to send a secret to another
+user - the secret is encrypted with the recipient's public key before storing it on the
+server.
 
-    For the truly paranoid, use a dedicated private browsing session and clear storage
-    afterwards, or download the key to a secure location and delete it from the browser.
+
+Receive pod keys
+----------------
+
+Each receive pod gets its own public/private key pair when it is created.
+
+Receive pod private keys are stored in the ``localstorage`` of the owner's browser, and
+the public key is stored on the server, ready to encrypt the sender's secret.
+
+
+Anonymous send pod keys
+-----------------------
+
+Send pods sent to an anonymous user get their own public/private key pair.
+
+The private key can then either be downloaded and sent to the sender separately using a
+secure method (eg by USB key). Alternatively, the sender can set an access code (a
+secure password) to encrypt it with and store it on the server, and then they can share
+the access code with the recipient separately (eg by SMS or DM),
+
+
+.. _server-stored-keys:
+
+Server-stored keys
+==================
+
+As mentioned above, Privipod can optionally store an encrypted copy of a private key on
+the server. This lets you decrypt a secret from a different device without transferring
+a key file out-of-band, and in the case of anonymous pods, share the private key .
+
+The key is encrypted in the browser before being sent to the server.
+
+.. warning::
+
+    Storing a key on the server weakens its security in the event of a database breach.
+    Your encrypted secret is protected by a 256-bit AES key; the server-stored private key
+    is protected only by your access code. Use a strong, randomly generated access code -
+    not a memorable word or number.
+
+    Each pod uses a distinct access code, so compromising one
+    access code does not expose keys on other pods.
+
+Paranoid server administrators can disable this feature entirely:
+
+.. code-block:: bash
+
+    uv run python -m privipod --no-server-keys
+    # or
+    PRIVIPOD_NO_SERVER_KEYS=1 uv run python -m privipod
+
+
+Expiry and destruction
+======================
+
+When a pod's deadline passes or it self-destructs, the server wipes the encrypted
+secret, encrypted filename, and any server-stored key and access-code verifier for the
+pod. The pod record and its access log are kept until the owner deletes it.
+
+Expired pods are destroyed as soon as they are next used, and by a background task
+every 5 minutes - except in ``--debug`` mode, where the background task does not run.
+
+The access log records who fetched and decrypted a secret, and when. Decryption
+happens in the browser, so "Secret decrypted" entries are reported by the browser
+rather than observed by the server - see :ref:`access-log`.
 
 
 Secret key
@@ -67,71 +130,4 @@ HTTPS requirement
 Privipod must be served over HTTPS in production. The Web Crypto API requires a
 `secure context <https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts>`_,
 and without HTTPS the private key stored in ``localStorage`` is accessible to any
-script on the same origin. See :doc:`install` for configuration examples.
-
-
-Running Modes
-=============
-
-Privipod operates in two modes depending on whether ``--hostname`` is provided.
-
-.. list-table::
-   :header-rows: 1
-
-   * - Setting
-     - Untrusted-host (default)
-     - Deployed (``--hostname``)
-   * - ``ALLOWED_HOSTS``
-     - ``["*"]``
-     - ``[hostname, …]``
-   * - ``CSRF_TRUSTED_ORIGINS``
-     - *(empty)*
-     - ``["https://hostname", …]``
-   * - ``SECURE_PROXY_SSL_HEADER``
-     - set
-     - set
-   * - ``SESSION_COOKIE_SECURE``
-     - True
-     - True
-   * - ``CSRF_COOKIE_SECURE``
-     - True
-     - True
-   * - ``SECURE_HSTS_SECONDS``
-     - 0
-     - 3600 (1 hour)
-
-Untrusted-host mode (default)
------------------------------
-
-Suitable for local use or sharing via ngrok/Cloudflare Tunnel. The app port
-is not internet-reachable directly, so ``X-Forwarded-Proto`` headers from the
-tunnel are trusted.
-
-.. note::
-
-    ``http://localhost`` is a secure context, but an ngrok or Cloudflare Tunnel
-    URL is a **different browser origin** - private keys stored in
-    ``localStorage`` are not shared between the two. Always use the same origin
-    consistently.
-
-Deployed mode (``--hostname example.com`` / ``PRIVIPOD_HOSTNAME=example.com``)
--------------------------------------------------------------------------------
-
-For Docker/Caddy or systemd/nginx deployments. Providing a hostname:
-
-- Restricts ``ALLOWED_HOSTS`` to the listed hostname(s), preventing
-  Host-header link-poisoning.
-- Sets ``CSRF_TRUSTED_ORIGINS``.
-- Enables HSTS (1-hour max-age by default, no subdomains or preload).
-  Increase ``SECURE_HSTS_SECONDS`` in your deployment once everything is stable.
-
-.. important::
-
-    Your reverse proxy **must strip or overwrite inbound X-Forwarded-Proto
-    and X-Forwarded-For headers** before forwarding requests to Privipod.
-    Caddy does this automatically; for nginx add::
-
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-    Privipod's app port must **not** be publicly reachable - only the proxy
-    should connect to it.
+script on the same origin. See :doc:`install/index` for configuration examples.
